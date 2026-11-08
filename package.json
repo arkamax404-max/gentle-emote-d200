@@ -1,0 +1,16 @@
+{
+  "name": "gentle-emote-d200",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Ulanzi D200 key plugin that mirrors gentle-emote frames",
+  "author": "Santiago Pérez",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.12.2"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "build": "node scripts/build.mjs",
+    "package": "npm test && npm run build && node scripts/package.mjs"
+  }
+}
