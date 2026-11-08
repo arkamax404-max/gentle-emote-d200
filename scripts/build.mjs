@@ -21,7 +21,7 @@ writeFileSync(fileURLToPath(new URL("plugin.png", assets)), icon);
 writeFileSync(fileURLToPath(new URL("action.png", assets)), icon);
 console.log(`Copied the plugin runtime to ${fileURLToPath(output)} and wrote the key icons.`);
 
-/** A 64x64 pixel-art Gentleman, rendered through the same 3x key scaler the runtime uses. */
+/** A 64x64 pixel-art Gentleman in the Gentle rose palette, rendered through the same 3x key scaler the runtime uses. */
 function createIconPng() {
   const width = 64;
   const height = 64;
@@ -38,29 +38,30 @@ function createIconPng() {
     for (let row = y; row < y + h; row += 1) for (let column = x; column < x + w; column += 1) paint(column, row, color);
   };
 
-  const canvas = [11, 15, 20];
-  const frame = [240, 192, 64];
-  const skin = [127, 214, 163];
-  const shadow = [82, 168, 122];
-  const ink = [11, 15, 20];
+  // Gentle Shell brand rose palette, as used by its banner and theme assets.
+  const canvas = [21, 23, 26];
+  const rose = [240, 149, 200];
+  const roseLight = [255, 177, 221];
+  const coral = [255, 113, 143];
+  const ink = [21, 23, 26];
 
   rect(0, 0, width, height, canvas);
   // Pixel frame, inset by one pixel so the 3x upscale keeps a clean edge.
-  rect(1, 1, width - 2, 1, frame);
-  rect(1, height - 2, width - 2, 1, frame);
-  rect(1, 1, 1, height - 2, frame);
-  rect(width - 2, 1, 1, height - 2, frame);
+  rect(1, 1, width - 2, 1, rose);
+  rect(1, height - 2, width - 2, 1, rose);
+  rect(1, 1, 1, height - 2, rose);
+  rect(width - 2, 1, 1, height - 2, rose);
 
-  // Head with a shaded right side, two eyes and a smile.
-  rect(18, 14, 28, 30, skin);
-  rect(40, 14, 6, 30, shadow);
+  // Head in light rose with a rose shadow on the right, two eyes and a smile.
+  rect(18, 14, 28, 30, roseLight);
+  rect(40, 14, 6, 30, rose);
   rect(24, 26, 5, 6, ink);
   rect(35, 26, 5, 6, ink);
   rect(27, 36, 10, 2, ink);
   rect(25, 35, 2, 2, ink);
   rect(37, 35, 2, 2, ink);
-  // Accent collar under the head.
-  rect(22, 46, 20, 3, frame);
+  // Coral collar under the head.
+  rect(22, 46, 20, 3, coral);
 
   return encodePng(scaleFrame({ width, height, data }));
 }
