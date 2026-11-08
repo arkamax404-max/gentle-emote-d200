@@ -167,6 +167,23 @@ test("a scale mode change re-renders the newest frame", async () => {
   }
 });
 
+test("a key is not painted before the receiver has an address", async () => {
+  const host = createStubHost();
+  const runtime = new EmoteKeyRuntime({ host, server: new EmoteServer({ port: 0 }), log: createLog() });
+  try {
+    runtime.contexts.set("key-1", { active: true, settings: { port: 0, scaleMode: "pixel" } });
+    runtime.redraw("key-1");
+    assert.equal(host.icons.length, 0);
+    await runtime.server.start();
+    runtime.redraw("key-1");
+    assert.equal(host.icons.length, 1);
+    const svg = Buffer.from(host.icons[0].data.split(",")[1], "base64").toString("utf8");
+    assert.match(svg, new RegExp(`127\.0\.0\.1:${runtime.server.port}`));
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("removing the last key releases the port", async () => {
   const { host, server, runtime } = await startRuntime();
   try {

@@ -76,6 +76,8 @@ class EmoteKeyRuntime {
     const entry = this.contexts.get(context);
     if (!entry || !entry.active) return;
     const frame = this.server.lastFrame;
+    // Before the receiver is bound there is no address to show; the post-bind pass draws it.
+    if (!frame && !this.server.target) return;
     const data = frame ? this.frameUri(frame, entry.settings) : this.placeholderUri();
     this.host.setBaseDataIcon(context, data);
   }

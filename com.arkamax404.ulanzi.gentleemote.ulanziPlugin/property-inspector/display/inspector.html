@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gentle Emote settings</title>
+    <link rel="stylesheet" href="inspector.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Gentle Emote</h1>
+      <p>Point gentle-emote's <code>externalDisplay.url</code> at this address:</p>
+      <output id="push-url" role="status">http://127.0.0.1:8000/emote</output>
+      <form id="settings">
+        <label>Local port
+          <input name="port" type="number" min="0" max="65535" step="1" value="8000" />
+        </label>
+        <fieldset>
+          <legend>Scaling</legend>
+          <label class="choice"><input type="radio" name="scaleMode" value="pixel" checked /> Pixel (3x, crisp)</label>
+          <label class="choice"><input type="radio" name="scaleMode" value="fill" /> Fill (stretch to key)</label>
+        </fieldset>
+        <output id="status" role="status">Connecting…</output>
+      </form>
+      <p class="note">Use port 0 to let the system pick a free port. When the configured port is taken, the next free one is used and shown on the key. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network.</p>
+    </main>
+    <script src="../lib/host-api.js"></script>
+    <script src="inspector.js"></script>
+  </body>
+</html>

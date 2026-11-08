@@ -36,6 +36,12 @@ class EmoteServer extends EventEmitter {
     return this.port ? `http://${this.host}:${this.port}/emote` : null;
   }
 
+  /** Changes the port the next bind will ask for; restart the receiver to apply it. */
+  setPort(port) {
+    if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid port: ${port}`);
+    this.requestedPort = port;
+  }
+
   /**
    * Binds the receiver. A requested port that is already taken is not fatal: the next free
    * port of the series is used and announced through `diagnostic`, so a simulator or another
