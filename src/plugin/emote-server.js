@@ -69,7 +69,8 @@ class EmoteServer extends EventEmitter {
       try {
         const bound = await this.listen(port);
         this.port = bound;
-        this.fallback = bound !== this.requestedPort;
+        // Port 0 means "let the OS choose", so the chosen port is never a fallback.
+        this.fallback = this.requestedPort !== 0 && bound !== this.requestedPort;
         if (this.fallback)
           this.diagnostic({
             code: "port-in-use",

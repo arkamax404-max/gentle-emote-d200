@@ -167,6 +167,21 @@ test("a busy port falls back to another free port", async () => {
   }
 });
 
+test("an automatic port is not reported as a fallback", async () => {
+  const server = new EmoteServer({ port: 0 });
+  const diagnostics = [];
+  server.on("diagnostic", (diagnostic) => diagnostics.push(diagnostic));
+  const bound = await server.start();
+  try {
+    assert.ok(bound.port > 0);
+    assert.equal(bound.fallback, false);
+    assert.deepEqual(diagnostics, []);
+    assert.equal(bound.target, `http://127.0.0.1:${bound.port}/emote`);
+  } finally {
+    await server.stop();
+  }
+});
+
 test("the requested port is used when it is free", async () => {
   const probe = new EmoteServer({ port: 0 });
   await probe.start();

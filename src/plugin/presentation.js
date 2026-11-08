@@ -60,10 +60,26 @@ function placeholderDataUri(options) {
   return svgDataUri(placeholderSvg(options));
 }
 
-/** Decoded frame -> key-sized PNG data URI. */
-function frameDataUri(frame, settings) {
-  const key = scaleFrame(frame.image, { mode: settings?.scaleMode });
-  return `data:image/png;base64,${encodePng(key).toString("base64")}`;
+function keyPng(frame, settings) {
+  return encodePng(scaleFrame(frame.image, { mode: settings?.scaleMode }));
 }
 
-module.exports = { frameDataUri, placeholderDataUri, placeholderSvg, svgDataUri, targetLabel };
+/** Key-sized PNG data URI; kept for diagnostics and for callers that want the raw PNG. */
+function framePngDataUri(frame, settings) {
+  return `data:image/png;base64,${keyPng(frame, settings).toString("base64")}`;
+}
+
+/**
+ * Decoded frame -> the payload the key paints for a `state` icon (type 1).
+ * The D200 renders SVG payloads (as every sibling plugin does); the scaled PNG is embedded
+ * 1:1 inside a 196x196 SVG so the device never resamples the pixel art.
+ */
+function frameDataUri(frame, settings) {
+  const png = keyPng(frame, settings).toString("base64");
+  return svgDataUri(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${KEY_SIZE}" height="${KEY_SIZE}" viewBox="0 0 ${KEY_SIZE} ${KEY_SIZE}">`
+      + `<image x="0" y="0" width="${KEY_SIZE}" height="${KEY_SIZE}" href="data:image/png;base64,${png}"/></svg>`,
+  );
+}
+
+module.exports = { frameDataUri, framePngDataUri, placeholderDataUri, placeholderSvg, svgDataUri, targetLabel };

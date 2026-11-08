@@ -2,6 +2,9 @@
 
 // Wires the loopback receiver to the D200 keys. Every placed key mirrors the newest frame;
 // pressing a key only redraws it, because this plugin is a display client for now.
+const { appendFileSync, statSync, writeFileSync } = require("node:fs");
+const { tmpdir } = require("node:os");
+const { join } = require("node:path");
 const { HostClient } = require("./host-client.js");
 const { EmoteServer } = require("./emote-server.js");
 const { normalizeSettings } = require("./settings.js");
@@ -9,13 +12,40 @@ const { frameDataUri, placeholderDataUri } = require("./presentation.js");
 
 const PLUGIN_UUID = "com.arkamax404.ulanzi.gentleemote";
 const MAX_RENDER_CACHE = 8;
+const LOG_FILE = join(tmpdir(), "gentle-emote-d200.log");
+const MAX_LOG_BYTES = 200 * 1024;
+
+/**
+ * Best-effort diagnostic log. Ulanzi Studio swallows plugin stdout, so the only way to see
+ * what the key pipeline did is a bounded file. It never throws and never blocks delivery.
+ */
+function createFileLog(file = LOG_FILE) {
+  let truncated = false;
+  return (message) => {
+    try {
+      if (!truncated) {
+        truncated = true;
+        try {
+          if (statSync(file).size > MAX_LOG_BYTES) writeFileSync(file, "");
+        } catch {
+          /* a missing log file is the normal first run */
+        }
+      }
+      appendFileSync(file, `${new Date().toISOString()} ${message}
+`);
+    } catch {
+      /* diagnostics must never break the key */
+    }
+  };
+}
 
 class EmoteKeyRuntime {
-  constructor({ host, server = new EmoteServer(), log = console } = {}) {
+  constructor({ host, server = new EmoteServer(), log = console, logLine = () => {} } = {}) {
     if (!host) throw new Error("a key host is required");
     this.host = host;
     this.server = server;
     this.log = log;
+    this.logLine = logLine;
     this.contexts = new Map();
     this.cache = new Map();
     this.started = false;
@@ -27,9 +57,13 @@ class EmoteKeyRuntime {
     this.server.on("frame", (frame) => this.onFrame(frame));
     this.server.on("diagnostic", (diagnostic) => {
       this.log.log(`[gentle-emote] ${diagnostic.message || diagnostic.code}`);
+      this.logLine(`receiver diagnostic: ${diagnostic.message || diagnostic.code}`);
       this.renderAll();
     });
-    this.server.on("error", (error) => this.log.error(`[gentle-emote] receiver: ${error.message}`));
+    this.server.on("error", (error) => {
+      this.log.error(`[gentle-emote] receiver: ${error.message}`);
+      this.logLine(`receiver error: ${error.message}`);
+    });
     this.host.onAdd((message) => this.applyContext(message));
     this.host.onParamFromApp((message) => this.applyContext(message));
     this.host.onParamFromPlugin((message) => this.applyContext(message));
@@ -37,6 +71,7 @@ class EmoteKeyRuntime {
     this.host.onRun((message) => this.redraw(message.context));
     this.host.onClear((message) => this.clear(message));
     await this.server.start();
+    this.logLine(`receiver bound: ${this.server.target ?? "none"} (fallback=${this.server.fallback})`);
     this.renderAll();
     return this;
   }
@@ -79,6 +114,7 @@ class EmoteKeyRuntime {
     // Before the receiver is bound there is no address to show; the post-bind pass draws it.
     if (!frame && !this.server.target) return;
     const data = frame ? this.frameUri(frame, entry.settings) : this.placeholderUri();
+    this.logLine(`icon -> ${context} ${data.slice(0, 26)} ${data.length}b mode=${entry.settings.scaleMode}`);
     this.host.setBaseDataIcon(context, data);
   }
 
@@ -86,7 +122,8 @@ class EmoteKeyRuntime {
     for (const context of this.contexts.keys()) this.redraw(context);
   }
 
-  onFrame() {
+  onFrame(frame) {
+    if (frame) this.logLine(`frame ${frame.id} state=${frame.state} seq=${frame.sequence} bytes=${frame.bytes}`);
     this.renderAll();
   }
 
@@ -120,7 +157,7 @@ class EmoteKeyRuntime {
 
 function start() {
   const host = new HostClient();
-  const runtime = new EmoteKeyRuntime({ host });
+  const runtime = new EmoteKeyRuntime({ host, logLine: createFileLog() });
   void runtime.start();
   host.connect(PLUGIN_UUID);
   host.on("error", (error) => console.error(`[Ulanzi host] ${error.message}`));
@@ -134,4 +171,4 @@ function start() {
 
 if (require.main === module) start();
 
-module.exports = { EmoteKeyRuntime, MAX_RENDER_CACHE, PLUGIN_UUID, start };
+module.exports = { EmoteKeyRuntime, LOG_FILE, MAX_RENDER_CACHE, PLUGIN_UUID, createFileLog, start };

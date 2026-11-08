@@ -73,9 +73,12 @@ async function startRuntime(options = {}) {
   return { host, log, server, runtime };
 }
 
+/** A key icon is an SVG payload that embeds the scaled 196x196 PNG. */
 function keyPng(uri) {
-  assert.match(uri, /^data:image\/png;base64,/);
-  return decodePng(Buffer.from(uri.split(",")[1], "base64"));
+  assert.match(uri, /^data:image\/svg\+xml;base64,/);
+  const svg = Buffer.from(uri.split(",")[1], "base64").toString("utf8");
+  const base64 = /href="data:image\/png;base64,([A-Za-z0-9+/=]+)"/.exec(svg)[1];
+  return decodePng(Buffer.from(base64, "base64"));
 }
 
 test("a placed key shows the receiving URL until a frame arrives", async () => {
@@ -102,8 +105,14 @@ test("a received frame is mirrored on every placed key", async () => {
       body: framePng(),
     });
     assert.equal(response.status, 204);
-    await waitFor(() => host.icons.filter((icon) => icon.data.startsWith("data:image/png")).length === 2);
-    for (const icon of host.icons.filter((entry) => entry.data.startsWith("data:image/png"))) {
+    // Placeholders are SVG too, so wait for icons that carry an embedded frame PNG.
+    const frameIcons = () => host.icons.filter((icon) => {
+      if (!icon.data.startsWith("data:image/svg+xml")) return false;
+      return Buffer.from(icon.data.split(",")[1], "base64").toString("utf8").includes('href="data:image/png;base64,');
+    });
+    await waitFor(() => frameIcons().length >= 2);
+    assert.deepEqual([...new Set(frameIcons().map((icon) => icon.context))].sort(), ["key-1", "key-2"]);
+    for (const icon of frameIcons()) {
       const png = keyPng(icon.data);
       assert.equal(png.width, KEY_SIZE);
       assert.equal(png.height, KEY_SIZE);
@@ -120,11 +129,11 @@ test("pressing the key only redraws the newest frame", async () => {
   try {
     host.emit("add", { context: "key-1", param: { port: 0 } });
     await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
-    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/png")));
-    const before = host.icons.filter((icon) => icon.data.startsWith("data:image/png")).length;
+    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/svg+xml")));
+    const before = host.icons.filter((icon) => icon.data.startsWith("data:image/svg+xml")).length;
     const frameCount = server.frameCount;
     host.emit("run", { context: "key-1" });
-    const rendered = host.icons.filter((icon) => icon.data.startsWith("data:image/png"));
+    const rendered = host.icons.filter((icon) => icon.data.startsWith("data:image/svg+xml"));
     assert.equal(rendered.length, before + 1);
     assert.equal(server.frameCount, frameCount);
     assert.equal(rendered[rendered.length - 1].data, rendered[rendered.length - 2].data);
@@ -144,7 +153,7 @@ test("an inactive key stops receiving frames until it is active again", async ()
     assert.equal(host.icons.length, iconsWhileInactive);
     host.emit("setactive", { context: "key-1", active: true });
     assert.equal(host.icons.length, iconsWhileInactive + 1);
-    assert.ok(host.last().data.startsWith("data:image/png"));
+    assert.ok(host.last().data.startsWith("data:image/svg+xml"));
   } finally {
     await runtime.stop();
   }
@@ -155,7 +164,7 @@ test("a scale mode change re-renders the newest frame", async () => {
   try {
     host.emit("add", { context: "key-1", param: { port: 0 } });
     await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
-    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/png")));
+    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/svg+xml")));
     const pixel = host.last().data;
     host.emit("paramfromapp", { context: "key-1", param: { port: 0, scaleMode: "fill" } });
     const fill = host.last().data;

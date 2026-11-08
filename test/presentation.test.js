@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { frameDataUri, placeholderDataUri, placeholderSvg, targetLabel } = require("../src/plugin/presentation.js");
+const { frameDataUri, framePngDataUri, placeholderDataUri, placeholderSvg, targetLabel } = require("../src/plugin/presentation.js");
 const { decodePng } = require("../src/plugin/png.js");
 const { KEY_SIZE } = require("../src/plugin/scale.js");
 
@@ -45,8 +45,8 @@ test("placeholder text is escaped and bounded", () => {
   assert.equal(label, "<SCRIPT>ALERT(1)</SCRIPT>".slice(0, 24).toUpperCase());
 });
 
-test("a received frame becomes the key image in pixel mode", () => {
-  const uri = frameDataUri(frame(), { scaleMode: "pixel" });
+test("a received frame becomes a 196x196 PNG key image in pixel mode", () => {
+  const uri = framePngDataUri(frame(), { scaleMode: "pixel" });
   assert.match(uri, /^data:image\/png;base64,/);
   const png = decodePng(Buffer.from(uri.split(",")[1], "base64"));
   assert.equal(png.width, KEY_SIZE);
@@ -58,9 +58,28 @@ test("a received frame becomes the key image in pixel mode", () => {
 });
 
 test("fill mode produces a different key image than pixel mode", () => {
-  const pixel = frameDataUri(frame(), { scaleMode: "pixel" });
-  const fill = frameDataUri(frame(), { scaleMode: "fill" });
+  const pixel = framePngDataUri(frame(), { scaleMode: "pixel" });
+  const fill = framePngDataUri(frame(), { scaleMode: "fill" });
   assert.notEqual(pixel, fill);
   const png = decodePng(Buffer.from(fill.split(",")[1], "base64"));
   assert.deepEqual([...png.data.subarray(0, 4)], [11, 22, 33, 255]);
+});
+
+/** The key paints SVG, with the scaled PNG embedded 1:1 so nothing is resampled. */
+function embeddedKeyPng(uri) {
+  assert.match(uri, /^data:image\/svg\+xml;base64,/);
+  const svg = Buffer.from(uri.split(",")[1], "base64").toString("utf8");
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" width="196" height="196"/);
+  assert.match(svg, /<image x="0" y="0" width="196" height="196" href="data:image\/png;base64,[A-Za-z0-9+/=]+"\/>/);
+  const base64 = /href="data:image\/png;base64,([A-Za-z0-9+/=]+)"/.exec(svg)[1];
+  return decodePng(Buffer.from(base64, "base64"));
+}
+
+test("the key payload is an SVG wrapper with the scaled PNG inside", () => {
+  const png = embeddedKeyPng(frameDataUri(frame(), { scaleMode: "pixel" }));
+  assert.equal(png.width, KEY_SIZE);
+  assert.equal(png.height, KEY_SIZE);
+  const center = (96 * KEY_SIZE + 96) * 4;
+  assert.deepEqual([...png.data.subarray(center, center + 4)], [11, 22, 33, 255]);
+  assert.deepEqual([...png.data.subarray(0, 4)], [0, 0, 0, 255]);
 });
