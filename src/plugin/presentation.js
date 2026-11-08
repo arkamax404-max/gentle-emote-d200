@@ -31,7 +31,7 @@ function svgDataUri(svg) {
   return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
 }
 
-/** Address line for the key: `127.0.0.1:8000` from the receiver target, or a clear gap. */
+/** Address line for the key: `127.0.0.1:8003` from the receiver target, or a clear gap. */
 function targetLabel(target) {
   if (!target) return "NO PORT";
   try {

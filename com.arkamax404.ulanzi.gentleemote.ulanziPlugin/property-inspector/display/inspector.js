@@ -2,7 +2,7 @@ const ACTION_UUID = "com.arkamax404.ulanzi.gentleemote.display";
 const form = document.querySelector("#settings");
 const status = document.querySelector("#status");
 const pushUrl = document.querySelector("#push-url");
-let settings = { port: 8000, scaleMode: "pixel" };
+let settings = { port: 8003, scaleMode: "pixel" };
 
 $UD.on("connected", () => {
   status.textContent = "Settings are stored with this key.";

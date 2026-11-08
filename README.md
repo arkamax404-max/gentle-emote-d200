@@ -27,17 +27,18 @@ project-level override):
 {
   "externalDisplay": {
     "enabled": true,
-    "url": "http://127.0.0.1:8000/emote",
+    "url": "http://127.0.0.1:8003/emote",
     "timeoutMs": 1000
   }
 }
 ```
 
 The key itself shows the address it is listening on while it waits for the first frame, so the port
-never has to be guessed. Reload the extension (`/reload`) and run `/emote demo`.
+never has to be guessed. Reload the extension (`/reload`) and run `/emote d200On` to start mirroring
+(the same frame can go to the simulator at 8000 and to this key at 8003 at once).
 
-Multiple destinations are supported upstream, so the D200 can receive frames next to a simulator or
-an ESP32 board:
+Multiple destinations are supported upstream, so the D200 can receive frames next to the browser
+simulator, which keeps its own port 8000:
 
 ```json
 {
@@ -46,7 +47,7 @@ an ESP32 board:
     "timeoutMs": 1000,
     "targets": [
       { "enabled": true, "url": "http://127.0.0.1:8000/emote" },
-      { "enabled": true, "url": "http://127.0.0.1:8001/emote" }
+      { "enabled": true, "url": "http://127.0.0.1:8003/emote" }
     ]
   }
 }
@@ -94,9 +95,19 @@ gentle-emote already draws the status/phase labels into the PNG it sends, so no 
 
 ## Ports
 
-The default port is 8000. Port `0` asks the system for a free port. When the configured port is
-already taken (a simulator or a second instance), the next free port of the series is used and the
-key shows the port actually bound — the plugin never fails because of a busy port.
+The default port is **8003**, matched to `/emote d200On` in gentle-emote, and chosen to keep out of
+the way of the rest of the ecosystem:
+
+| Destination | Port |
+| --- | --- |
+| This D200 plugin | 8003 (default, `/emote d200On`) |
+| `emote-display-simulator` (browser preview) | 8000 |
+| ESP32 display firmware | 80 (`POST /emote`, `GET /health`) |
+
+Port `0` asks the system for a free port. When the configured port is already taken (a second
+instance or another tool), the next free port of the series is used and the key shows the port
+actually bound — the plugin never fails, and it never steals the simulator's 8000 unless you ask for
+it explicitly.
 
 ## Settings
 

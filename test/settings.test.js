@@ -2,11 +2,11 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const { DEFAULT_SETTINGS, normalizePort, normalizeSettings } = require("../src/plugin/settings.js");
 
-test("settings default to port 8000 and pixel scaling", () => {
-  assert.deepEqual(normalizeSettings(), { port: 8000, scaleMode: "pixel" });
-  assert.deepEqual(normalizeSettings({}), { port: 8000, scaleMode: "pixel" });
-  assert.deepEqual(normalizeSettings(null), { port: 8000, scaleMode: "pixel" });
-  assert.equal(DEFAULT_SETTINGS.port, 8000);
+test("settings default to port 8003 and pixel scaling", () => {
+  assert.deepEqual(normalizeSettings(), { port: 8003, scaleMode: "pixel" });
+  assert.deepEqual(normalizeSettings({}), { port: 8003, scaleMode: "pixel" });
+  assert.deepEqual(normalizeSettings(null), { port: 8003, scaleMode: "pixel" });
+  assert.equal(DEFAULT_SETTINGS.port, 8003);
 });
 
 test("a configured port is kept, including 0 for an automatic port", () => {
@@ -17,7 +17,7 @@ test("a configured port is kept, including 0 for an automatic port", () => {
 
 test("impossible ports fall back to the default instead of failing", () => {
   for (const value of [-1, 70000, 12.5, "abc", null, undefined, "", NaN, Infinity])
-    assert.equal(normalizePort(value), 8000, `port ${String(value)}`);
+    assert.equal(normalizePort(value), 8003, `port ${String(value)}`);
 });
 
 test("both scaling modes are accepted and anything else falls back to pixel", () => {

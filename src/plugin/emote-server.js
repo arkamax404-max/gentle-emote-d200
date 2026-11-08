@@ -8,7 +8,8 @@ const EventEmitter = require("node:events");
 const { MAX_BODY_BYTES, parseEmoteRequest } = require("./emote-protocol.js");
 const { decodePng } = require("./png.js");
 
-const DEFAULT_PORT = 8000;
+// 8003 is the port gentle-emote's /emote d200On targets; 8000 is the simulator and the ESP32 uses 80.
+const DEFAULT_PORT = 8003;
 const PORT_ATTEMPTS = 10;
 
 class EmoteServer extends EventEmitter {
@@ -45,7 +46,7 @@ class EmoteServer extends EventEmitter {
   /**
    * Binds the receiver. A requested port that is already taken is not fatal: the next free
    * port of the series is used and announced through `diagnostic`, so a simulator or another
-   * instance can own 8000 without breaking the key.
+   * instance can own 8003 without breaking the key.
    */
   async start() {
     this.stopped = false;
