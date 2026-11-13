@@ -6,6 +6,13 @@ key animates together with the terminal.
 
 No account, no cloud, no outbound networking: the receiver binds `127.0.0.1` only.
 
+## Related project
+
+[gentle-emotex](https://github.com/arkamax404-max/gentle-emotex) is the related Pi / Gentle Shell
+extension repository in this ecosystem. Configure its external display output to send avatar frames
+to this plugin: gentle-emotex runs in the terminal, while gentle-emote-d200 displays the frames on
+an Ulanzi D200 key. This plugin is a separate receiver, not the terminal extension.
+
 ## Requirements
 
 - Ulanzi D200 with Ulanzi Studio 2.1.4 or later.
@@ -14,7 +21,7 @@ No account, no cloud, no outbound networking: the receiver binds `127.0.0.1` onl
 
 ## Install
 
-1. Build the package: `npm ci && npm run package` (see [Development](#development)).
+1. Build the package: `npm run package` (see [Development](#development)); no dependency installation is required.
 2. In Ulanzi Studio, install `com.arkamax404.ulanzi.gentleemote.ulanziPlugin/package/com.arkamax404.ulanzi.gentleemote.ulanziPlugin.zip`.
 3. Drag **Gentle Emote → Emote Display** onto a D200 key.
 
@@ -127,7 +134,7 @@ sent back to gentle-emote, and no settings change.
 ## Development
 
 ```bash
-npm test      # 51 node:test cases: PNG codec, scaler, protocol, receiver, key runtime
+npm test      # node:test suite: PNG codec, scaler, protocol, receiver, key runtime
 npm run build # copy src/plugin -> plugin dist/, regenerate the key icons
 npm run package
 ```
@@ -156,3 +163,8 @@ gentle-emote config can enable outbound requests.
 PNG codec and scaler are adapted from gentle-emote's `src/png.ts` and `src/display_image.ts` (MIT).
 The Ulanzi host client and the build/package scripts follow the sibling D200 plugins in this
 workspace. gentle-emote is built on [pi-emote](https://github.com/cgxeiji/pi-emote) by Eiji Onchi.
+See also the related [gentle-emotex repository](https://github.com/arkamax404-max/gentle-emotex).
+
+## License
+
+[MIT](LICENSE). Upstream copyright notices are preserved in the license.
