@@ -5,7 +5,7 @@
 const { encodePng } = require("./png.js");
 const { KEY_SIZE, scaleFrame } = require("./scale.js");
 
-const PLACEHOLDER_BACKGROUND = "#000000";
+const { normalizeBackgroundColor } = require("./settings.js");
 const PLACEHOLDER_ACCENT = "#f0c040";
 const PLACEHOLDER_TEXT = "#ffffff";
 const PLACEHOLDER_MUTED = "#8a8a8a";
@@ -42,12 +42,12 @@ function targetLabel(target) {
   }
 }
 
-function placeholderSvg({ target = null, detail = "WAITING FOR EMOTE" } = {}) {
+function placeholderSvg({ target = null, detail = "WAITING FOR EMOTE", backgroundColor } = {}) {
   const address = escapeXml(targetLabel(target));
   const line = escapeXml(String(detail).slice(0, 24).toUpperCase());
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${KEY_SIZE}" height="${KEY_SIZE}" viewBox="0 0 ${KEY_SIZE} ${KEY_SIZE}">`,
-    `<rect width="${KEY_SIZE}" height="${KEY_SIZE}" fill="${PLACEHOLDER_BACKGROUND}"/>`,
+    `<rect width="${KEY_SIZE}" height="${KEY_SIZE}" fill="${normalizeBackgroundColor(backgroundColor)}"/>`,
     `<rect x="12" y="12" width="${KEY_SIZE - 24}" height="${KEY_SIZE - 24}" fill="none" stroke="${PLACEHOLDER_ACCENT}" stroke-width="2" stroke-dasharray="6 6"/>`,
     `<text x="${KEY_SIZE / 2}" y="70" fill="${PLACEHOLDER_ACCENT}" font-family="monospace" font-size="18" font-weight="bold" letter-spacing="2" text-anchor="middle">GENTLE EMOTE</text>`,
     `<text x="${KEY_SIZE / 2}" y="112" fill="${PLACEHOLDER_TEXT}" font-family="monospace" font-size="20" text-anchor="middle">${address}</text>`,
@@ -61,7 +61,9 @@ function placeholderDataUri(options) {
 }
 
 function keyPng(frame, settings) {
-  return encodePng(scaleFrame(frame.image, { mode: settings?.scaleMode }));
+  const color = normalizeBackgroundColor(settings?.backgroundColor);
+  const background = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16));
+  return encodePng(scaleFrame(frame.image, { mode: settings?.scaleMode, background }));
 }
 
 /** Key-sized PNG data URI; kept for diagnostics and for callers that want the raw PNG. */

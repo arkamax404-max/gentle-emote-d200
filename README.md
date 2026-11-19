@@ -90,7 +90,7 @@ always paints the newest selection instead of replaying a backlog.
 ## Scaling: 64x64 to the key grid
 
 A D200 key is a 196x196 pixel canvas. A 64x64 frame gets an **exact 3x nearest-neighbour upscale**
-(192x192) centred on a black canvas with a 2px letterbox:
+(192x192) centred on a canvas (black by default) with a 2px letterbox:
 
 - integer factors keep every source pixel the same size, so pixel-art edges stay crisp;
 - transparent source pixels are composited over the canvas colour (black by default);
@@ -122,6 +122,16 @@ Per key, from the Property Inspector:
 
 - **Local port** — `0` for automatic, otherwise 1-65535.
 - **Scaling** — `Pixel` (3x, default) or `Fill`.
+- **Background color** — per-key RGB color picker, black (`#000000`) by default. Stored with
+  the key in Ulanzi Studio; six-digit `#rrggbb` values are normalized to lowercase and missing or
+  invalid values fall back to black. Changes redraw the current frame immediately and also color
+  the waiting placeholder, without changing its text or accent.
+
+The background fills the D200 letterbox and composites transparent/partially transparent received
+pixels to an opaque key image. Opaque source pixels (including black pixels and padding already
+baked into the sender's PNG) are unchanged; a fully opaque frame in **Fill** mode may show no
+background at all. Source frames are not modified. This is D200 receiver-only: it does not change
+sender settings, desktop preferences, or LED display rendering via HTML or serial.
 
 Several keys can be placed at once: they all mirror the same newest frame, and the most recently
 applied port wins because one receiver serves the whole plugin.

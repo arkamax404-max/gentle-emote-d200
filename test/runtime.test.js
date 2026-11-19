@@ -193,6 +193,42 @@ test("a key is not painted before the receiver has an address", async () => {
   }
 });
 
+test("per-key backgrounds redraw the same frame, isolate cache and retain partial settings", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0, scaleMode: "fill", backgroundColor: "#204060" } });
+    const svg = Buffer.from(host.last().data.split(",")[1], "base64").toString("utf8");
+    assert.match(svg, /fill="#204060"/);
+    host.emit("add", { context: "key-2", param: { port: 0, scaleMode: "fill", backgroundColor: "#abcdef" } });
+    const response = await fetch(`http://127.0.0.1:${server.port}/emote`, {
+      method: "POST", headers: emoteHeaders(), body: framePng(64, [1, 2, 3, 0]),
+    });
+    assert.equal(response.status, 204);
+    const lastFor = (context) => host.icons.filter((icon) => icon.context === context).at(-1).data;
+    const corner = (context) => [...keyPng(lastFor(context)).data.subarray(0, 4)];
+    assert.deepEqual(corner("key-1"), [32, 64, 96, 255]);
+    assert.deepEqual(corner("key-2"), [171, 205, 239, 255]);
+    const previous = lastFor("key-1");
+    const port = server.port;
+    const frameCount = server.frameCount;
+    host.emit("paramfromplugin", { context: "key-1", param: { backgroundColor: "#ff0000" } });
+    assert.notEqual(lastFor("key-1"), previous);
+    assert.deepEqual(corner("key-1"), [255, 0, 0, 255]);
+    assert.deepEqual(corner("key-2"), [171, 205, 239, 255]);
+    assert.equal(server.port, port);
+    assert.equal(server.requestedPort, 0);
+    assert.equal(server.frameCount, frameCount);
+    // Only colour was sent: fill must remain selected (no letterbox on this opaque frame).
+    const opaque = await fetch(`http://127.0.0.1:${server.port}/emote`, {
+      method: "POST", headers: emoteHeaders(2), body: framePng(),
+    });
+    assert.equal(opaque.status, 204);
+    assert.deepEqual(corner("key-1"), [40, 90, 200, 255]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("removing the last key releases the port", async () => {
   const { host, server, runtime } = await startRuntime();
   try {

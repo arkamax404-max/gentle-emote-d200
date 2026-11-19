@@ -20,6 +20,9 @@
           <label class="choice"><input type="radio" name="scaleMode" value="pixel" checked /> Pixel (3x, crisp)</label>
           <label class="choice"><input type="radio" name="scaleMode" value="fill" /> Fill (stretch to key)</label>
         </fieldset>
+        <label>Background color
+          <input name="backgroundColor" type="color" value="#000000" />
+        </label>
         <output id="status" role="status">Connecting…</output>
       </form>
       <p class="note">Use port 0 to let the system pick a free port. When the configured port is taken, the next free one is used and shown on the key. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network.</p>

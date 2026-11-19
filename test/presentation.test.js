@@ -75,6 +75,40 @@ function embeddedKeyPng(uri) {
   return decodePng(Buffer.from(base64, "base64"));
 }
 
+test("selected background composites alpha, preserves opaque pixels and source, and produces opaque PNG", () => {
+  const source = frame();
+  source.image.data.set([99, 88, 77, 0], 0);
+  source.image.data.set([200, 100, 50, 128], 4);
+  source.image.data.set([0, 0, 0, 255], 8);
+  const before = source.image.data.slice();
+  const png = embeddedKeyPng(frameDataUri(source, { backgroundColor: "#204060" }));
+  const pixel = (x, y) => [...png.data.subarray((y * KEY_SIZE + x) * 4, (y * KEY_SIZE + x) * 4 + 4)];
+  assert.deepEqual(pixel(0, 0), [32, 64, 96, 255]);
+  assert.deepEqual(pixel(2, 2), [32, 64, 96, 255]);
+  assert.deepEqual(pixel(5, 2), [116, 82, 73, 255]);
+  assert.deepEqual(pixel(8, 2), [0, 0, 0, 255]);
+  assert.deepEqual(pixel(11, 2), [11, 22, 33, 255]);
+  for (let i = 3; i < png.data.length; i += 4) assert.equal(png.data[i], 255);
+  assert.deepEqual(source.image.data, before);
+  const fill = decodePng(Buffer.from(framePngDataUri(frame(), { scaleMode: "fill", backgroundColor: "#204060" }).split(",")[1], "base64"));
+  assert.deepEqual([...fill.data.subarray(0, 4)], [11, 22, 33, 255]);
+});
+
+test("presentation defaults invalid or missing backgrounds to black", () => {
+  for (const settings of [undefined, {}, { backgroundColor: "bad" }]) {
+    const png = embeddedKeyPng(frameDataUri(frame([99, 88, 77, 0]), settings));
+    assert.deepEqual([...png.data.subarray(0, 4)], [0, 0, 0, 255]);
+    assert.deepEqual([...png.data.subarray((96 * KEY_SIZE + 96) * 4, (96 * KEY_SIZE + 96) * 4 + 4)], [0, 0, 0, 255]);
+  }
+});
+
+test("placeholder uses selected background without changing text or accent", () => {
+  const original = placeholderSvg({ target: "http://127.0.0.1:8123/emote" });
+  const selected = placeholderSvg({ target: "http://127.0.0.1:8123/emote", backgroundColor: "#ABCDEF" });
+  assert.equal(selected, original.replace('fill="#000000"', 'fill="#abcdef"'));
+  assert.equal(placeholderSvg({ backgroundColor: "bad" }), placeholderSvg());
+});
+
 test("the key payload is an SVG wrapper with the scaled PNG inside", () => {
   const png = embeddedKeyPng(frameDataUri(frame(), { scaleMode: "pixel" }));
   assert.equal(png.width, KEY_SIZE);
