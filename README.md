@@ -76,8 +76,9 @@ The plugin accepts exactly what gentle-emote sends (`src/external_display.ts`):
 | `X-Emote-Status` | `idle`, `busy`, or `error` |
 | `X-Emote-Phase` | `idle`, `thinking`, `responding`, `executing`, `waiting`, `compacting` |
 | `X-Emote-Active-Subagents` | Nonnegative in-flight subagent count |
+| `X-Emote-Session-Id` | Optional opaque session ID, 1–128 characters from `A-Za-z0-9_.:-` |
 | `X-Emote-Stream-Id` | Random sender UUID |
-| `X-Emote-Sequence` | Increasing positive integer |
+| `X-Emote-Sequence` | Decimal sequence; session-aware traffic uses exact unsigned 64-bit comparisons |
 
 Any path is accepted, so only host and port matter. Answers: `204` on success, `405` for a
 non-`POST` method (with `Allow: POST`), `415` for a non-PNG body, `400` for a bad version header or an
