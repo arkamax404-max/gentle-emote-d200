@@ -5,7 +5,8 @@
 // so the key always shows the latest selection instead of a backlog.
 const http = require("node:http");
 const EventEmitter = require("node:events");
-const { MAX_BODY_BYTES, parseEmoteRequest } = require("./emote-protocol.js");
+const { MAX_BODY_BYTES, parseEmoteRequest, parseLifecycleRequest } = require("./emote-protocol.js");
+const { FocusSessions } = require("./focus-sessions.js");
 const { decodePng } = require("./png.js");
 
 // 8003 is the port gentle-emote's /emote d200On targets; 8000 is the simulator and the ESP32 uses 80.
@@ -19,6 +20,7 @@ class EmoteServer extends EventEmitter {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`invalid port: ${port}`);
     this.host = typeof options.host === "string" ? options.host : "127.0.0.1";
     this.maxBodyBytes = Number.isInteger(options.maxBodyBytes) ? options.maxBodyBytes : MAX_BODY_BYTES;
+    this.now = typeof options.now === "function" ? options.now : undefined;
     this.requestedPort = port;
     this.port = 0;
     this.fallback = false;
@@ -26,6 +28,9 @@ class EmoteServer extends EventEmitter {
     this.server = null;
     this.stopped = true;
     this.frameCount = 0;
+    // Every start/stop is a new epoch: late in-flight requests may not mutate focus state.
+    this.generation = 0;
+    this.sessions = new FocusSessions({ now: this.now, requestId: options.requestId });
   }
 
   get listening() {
@@ -43,13 +48,14 @@ class EmoteServer extends EventEmitter {
     this.requestedPort = port;
   }
 
-  /**
-   * Binds the receiver. A requested port that is already taken is not fatal: the next free
+  /** Binds the receiver. A requested port that is already taken is not fatal: the next free
    * port of the series is used and announced through `diagnostic`, so a simulator or another
    * instance can own 8003 without breaking the key.
    */
   async start() {
     this.stopped = false;
+    this.generation += 1; // restart: focus state starts clean
+    this.sessions.stop();
     await this.bind();
     return { host: this.host, port: this.port, requestedPort: this.requestedPort, fallback: this.fallback, target: this.target };
   }
@@ -130,6 +136,8 @@ class EmoteServer extends EventEmitter {
 
   async stop() {
     this.stopped = true;
+    this.generation += 1; // late in-flight requests may no longer mutate focus state
+    this.sessions.stop(); // stop and port rebinding always clear focus state
     const server = this.server;
     this.server = null;
     this.port = 0;
@@ -138,6 +146,7 @@ class EmoteServer extends EventEmitter {
   }
 
   handle(request, response) {
+    const generation = this.generation;
     const chunks = [];
     let size = 0;
     let tooLarge = false;
@@ -155,25 +164,69 @@ class EmoteServer extends EventEmitter {
     });
     request.on("end", () => {
       if (tooLarge) return this.respond(response, 413, "frame too large");
-      this.accept(request, Buffer.concat(chunks), response);
+      this.accept(request, Buffer.concat(chunks), response, generation);
     });
   }
 
-  accept(request, body, response) {
-    const parsed = parseEmoteRequest({ method: request.method, headers: request.headers, body });
+  accept(request, body, response, generation) {
+    if (generation !== this.generation) return; // the receiver moved on; never touch focus
+    const url = String(request.url || "/");
+    const path = url.split("?")[0];
+    // Only the exact lifecycle routes without a query are lifecycle packets; anything else
+    // (including query strings there) falls through to the frame route.
+    if (!url.includes("?") && (path === "/emote/heartbeat" || path === "/emote/close"))
+      return this.lifecycle(path, request, body, response);
+    const parsed = parseEmoteRequest({ method: request.method, headers: request.headers, rawHeaders: request.rawHeaders, body });
     if (!parsed.ok) {
       if (parsed.allow) response.setHeader("Allow", parsed.allow);
       return this.respond(response, parsed.status, parsed.reason);
     }
     let image;
     try {
+      // The PNG decodes before any session transition: an invalid frame never changes state.
       image = decodePng(parsed.frame.png);
     } catch (error) {
       return this.respond(response, 400, `cannot decode PNG: ${error.message}`);
     }
-    const frame = { ...parsed.frame, image, bytes: parsed.frame.png.length, receivedAt: Date.now(), id: ++this.frameCount };
+    const focusCapable =
+      !parsed.duplicateIdentity &&
+      !parsed.originPresent &&
+      parsed.frame.sessionId !== null &&
+      parsed.frame.streamId !== null &&
+      parsed.frame.sequenceRaw !== null;
+    if (focusCapable) {
+      const outcome = this.sessions.acceptFrame({
+        session: parsed.frame.sessionId,
+        stream: parsed.frame.streamId,
+        sequence: BigInt(parsed.frame.sequenceRaw),
+      });
+      if (outcome.outcome === "full") return this.respond(response, 429, "focus session capacity reached");
+      // Replay, retired or closed traffic is an empty 204 that stores and announces nothing.
+      if (outcome.outcome !== "fresh") return this.respond(response, 204, null);
+      return this.acceptFreshFrame({ request, response, parsed, image, focusRequestId: this.resolveAck(request, parsed.frame.sessionId, outcome.request) });
+    }
+    return this.acceptFreshFrame({ request, response, parsed, image, focusRequestId: null, focusCapable: false });
+  }
+
+  /** A matching ack consumes the queued request; malformed or unknown acks are ignored. */
+  resolveAck(request, session, queuedId) {
+    const ackHeader = request.headers?.["x-emote-focus-ack"];
+    const ack = typeof ackHeader === "string" ? ackHeader.trim() : null;
+    if (ack === null || !session || !queuedId) return queuedId;
+    return this.sessions.ack({ session, id: ack }) ? null : queuedId;
+  }
+
+  acceptFreshFrame({ response, parsed, image, focusRequestId, focusCapable = true }) {
+    const frame = {
+      ...parsed.frame,
+      image,
+      bytes: parsed.frame.png.length,
+      receivedAt: Date.now(),
+      id: ++this.frameCount,
+      focusCapable,
+    };
     this.lastFrame = frame;
-    this.respond(response, 204, null);
+    this.respond(response, 204, null, focusRequestId ? { "x-emote-focus-request-id": focusRequestId } : undefined);
     try {
       this.emit("frame", frame);
     } catch {
@@ -181,10 +234,24 @@ class EmoteServer extends EventEmitter {
     }
   }
 
-  respond(response, status, error) {
+  lifecycle(path, request, body, response) {
+    const parsed = parseLifecycleRequest({ method: request.method, headers: request.headers, rawHeaders: request.rawHeaders, body });
+    if (!parsed.ok) {
+      if (parsed.allow) response.setHeader("Allow", parsed.allow);
+      return this.respond(response, parsed.status, parsed.reason);
+    }
+    const result = path === "/emote/heartbeat"
+      ? this.sessions.heartbeat(parsed.identity)
+      : this.sessions.close(parsed.identity);
+    if (result.outcome === "full") return this.respond(response, 429, "focus session capacity reached");
+    const queuedId = result.outcome === "fresh" ? this.resolveAck(request, parsed.identity.session, result.request) : null;
+    this.respond(response, 204, null, queuedId ? { "x-emote-focus-request-id": queuedId } : undefined);
+  }
+
+  respond(response, status, error, extraHeaders) {
     if (response.writableEnded) return;
     if (error === null) {
-      response.writeHead(status);
+      response.writeHead(status, extraHeaders);
       response.end();
       return;
     }

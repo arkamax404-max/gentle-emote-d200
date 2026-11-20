@@ -88,6 +88,30 @@ undecodable PNG, `413` above 256 KiB. Metadata is optional and bounded: an unkno
 Delivery is latest-frame-only. gentle-emote already drops intermediate animation frames, so the key
 always paints the newest selection instead of replaying a backlog.
 
+## Session lifecycle and focus transport
+
+Session-aware frames register their session, stream and exact unsigned 64-bit sequence.
+The receiver delivers pending opaque focus requests on fresh frame or heartbeat responses
+through `X-Emote-Focus-Request-Id`. The emitter acknowledges confirmed success with
+`X-Emote-Focus-Ack`; legacy frames remain display-only.
+
+Two small exact-path routes carry lifecycle traffic (`Content-Type` ignored, empty body required):
+
+| Route | Effect |
+| --- | --- |
+| `POST /emote/heartbeat` | Refreshes the current stream's 30s lease, reactivates an expired one; never creates or switches streams |
+| `POST /emote/close` | Marks the stream closed, clears the pending focus request; only a new stream can take over |
+
+Both answer `204`/`405`/`400` like frames, plus `403` when an `Origin` header is present — origin
+bearing traffic is display-only and can never create or change focus state. Bounds mirror the
+desktop contract: 32 simultaneously active sessions, 64 known session records (when a 65th is
+needed, the inactive record least recently seen is evicted; active records are never evicted), 16
+retired stream ids per session (FIFO, a dropped id may return as a brand-new stream), a 30s lease
+per session and a 15s TTL per focus request. Replays, retired and closed identities are answered
+with an empty `204` that stores, counts, repaints and queues nothing; when 32 sessions are already
+active a new activation — a fresh session or a reactivation — is answered `429`, while plain legacy
+frames keep working.
+
 ## Scaling: 64x64 to the key grid
 
 A D200 key is a 196x196 pixel canvas. A 64x64 frame gets an **exact 3x nearest-neighbour upscale**
