@@ -30,6 +30,23 @@ test("the placeholder never renders an unbindable target", () => {
   assert.match(decodedSvg(placeholderDataUri({})), /NO PORT/);
 });
 
+test("the placeholder paints the configured background colour and transparency", () => {
+  const svg = placeholderSvg({ settings: { backgroundColor: "#ffaa00", backgroundTransparency: 37 } });
+  assert.match(svg, /fill="rgb\(255,170,0\)" fill-opacity="0\.63"/);
+  const transparent = placeholderSvg({ settings: { backgroundColor: "#112233", backgroundTransparency: 100 } });
+  assert.match(transparent, /fill="rgb\(17,34,51\)" fill-opacity="0"/);
+});
+
+test("the placeholder keeps the opaque black canvas without background settings", () => {
+  const svg = placeholderSvg({});
+  assert.match(svg, /fill="rgb\(0,0,0\)"\/>/);
+  assert.ok(!svg.includes("fill-opacity"));
+  // A malformed colour falls back to the same opaque black canvas; an out-of-range
+  // transparency clamps to the same 0..100 window the frame-path scaler applies.
+  const tampered = placeholderSvg({ settings: { backgroundColor: "red", backgroundTransparency: 150 } });
+  assert.match(tampered, /fill="rgb\(0,0,0\)" fill-opacity="0"/);
+});
+
 test("placeholder text is escaped and bounded", () => {
   const svg = placeholderSvg({ detail: "<script>alert(1)</script> and more text here" });
   assert.ok(!svg.includes("<script>"));
@@ -63,6 +80,14 @@ test("fill mode produces a different key image than pixel mode", () => {
   assert.notEqual(pixel, fill);
   const png = decodePng(Buffer.from(fill.split(",")[1], "base64"));
   assert.deepEqual([...png.data.subarray(0, 4)], [11, 22, 33, 255]);
+});
+
+test("the black-removal setting flows through the presentation layer", () => {
+  const black = frame([0, 0, 0, 255]);
+  const legacy = decodePng(Buffer.from(framePngDataUri(black, { scaleMode: "fill", backgroundColor: "#0a141e" }).split(",")[1], "base64"));
+  assert.deepEqual([...legacy.data.subarray(0, 4)], [0, 0, 0, 255]);
+  const removed = decodePng(Buffer.from(framePngDataUri(black, { scaleMode: "fill", backgroundColor: "#0a141e", removeBlackBackground: true }).split(",")[1], "base64"));
+  assert.deepEqual([...removed.data.subarray(0, 4)], [10, 20, 30, 255]);
 });
 
 /** The key paints SVG, with the scaled PNG embedded 1:1 so nothing is resampled. */

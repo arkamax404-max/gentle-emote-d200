@@ -113,7 +113,7 @@ class EmoteKeyRuntime {
     const frame = this.server.lastFrame;
     // Before the receiver is bound there is no address to show; the post-bind pass draws it.
     if (!frame && !this.server.target) return;
-    const data = frame ? this.frameUri(frame, entry.settings) : this.placeholderUri();
+    const data = frame ? this.frameUri(frame, entry.settings) : this.placeholderUri(entry.settings);
     this.logLine(`icon -> ${context} ${data.slice(0, 26)} ${data.length}b mode=${entry.settings.scaleMode}`);
     this.host.setBaseDataIcon(context, data);
   }
@@ -127,9 +127,9 @@ class EmoteKeyRuntime {
     this.renderAll();
   }
 
-  /** Rendering is cached per frame and scale mode so a burst of keys reuses one encode. */
+  /** Rendering is cached per frame and rendering settings so a burst of keys reuses one encode. */
   frameUri(frame, settings) {
-    const cacheKey = `${frame.id}:${settings.scaleMode}`;
+    const cacheKey = `${frame.id}:${settings.scaleMode}:${settings.backgroundColor}:${settings.backgroundTransparency}:${settings.removeBlackBackground}`;
     const cached = this.cache.get(cacheKey);
     if (cached) return cached;
     const data = frameDataUri(frame, settings);
@@ -138,8 +138,8 @@ class EmoteKeyRuntime {
     return data;
   }
 
-  placeholderUri() {
-    return placeholderDataUri({ target: this.server.target });
+  placeholderUri(settings) {
+    return placeholderDataUri({ target: this.server.target, settings });
   }
 
   clear(message) {

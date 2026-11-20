@@ -17,12 +17,66 @@ function normalizeBackground(value) {
   return value;
 }
 
+/** Background alpha behind the frame: 1 (default) keeps today's opaque canvas, 0 is fully transparent. */
+function normalizeBackgroundAlpha(value) {
+  if (value === undefined) return 1;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
+    throw new Error("invalid background alpha");
+  return value;
+}
+
 function assertFrame(image) {
   if (!image || typeof image !== "object") throw new Error("invalid frame image");
   const { width, height, data } = image;
   if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1)
     throw new Error("invalid frame size");
   if (!data || data.length !== width * height * 4) throw new Error("invalid frame pixels");
+}
+
+/** Only a genuine `true` (or the string form a host may echo back) turns the removal on. */
+function wantsBlackRemoval(value) {
+  return value === true || value === "true";
+}
+
+/**
+ * Clears the alpha of every exact RGB(0,0,0) pixel connected to the source edges, using an
+ * explicit stack (no recursion) and 4-neighbour connectivity. Fully transparent pixels are
+ * traversed so black behind them is reached, but they are never modified; enclosed black
+ * details stay untouched. Returns a copy — the source frame data is never mutated.
+ */
+function removeEdgeConnectedBlack(image) {
+  const { width, height } = image;
+  const data = new Uint8Array(image.data);
+  const visited = new Uint8Array(width * height);
+  const stack = [];
+  const visit = (index) => {
+    if (visited[index]) return;
+    visited[index] = 1;
+    const offset = index * 4;
+    const black = data[offset] === 0 && data[offset + 1] === 0 && data[offset + 2] === 0;
+    const transparent = data[offset + 3] === 0;
+    if (!black && !transparent) return;
+    if (black) data[offset + 3] = 0;
+    stack.push(index);
+  };
+  for (let x = 0; x < width; x += 1) {
+    visit(x);
+    visit((height - 1) * width + x);
+  }
+  for (let y = 0; y < height; y += 1) {
+    visit(y * width);
+    visit(y * width + width - 1);
+  }
+  while (stack.length > 0) {
+    const index = stack.pop();
+    const x = index % width;
+    const y = (index - x) / width;
+    if (x > 0) visit(index - 1);
+    if (x < width - 1) visit(index + 1);
+    if (y > 0) visit(index - width);
+    if (y < height - 1) visit(index + width);
+  }
+  return data;
 }
 
 /** Geometry of one drawn frame inside the key canvas, in source-pixel space. */
@@ -59,7 +113,10 @@ function scaleFrame(image, options = {}) {
   const size = options.size === undefined ? KEY_SIZE : options.size;
   if (!Number.isInteger(size) || size < 1) throw new Error(`invalid key size: ${size}`);
   const background = normalizeBackground(options.background);
-  const source = image.data;
+  const backgroundAlpha = normalizeBackgroundAlpha(options.backgroundAlpha);
+  const source = wantsBlackRemoval(options.removeBlackBackground)
+    ? removeEdgeConnectedBlack(image)
+    : image.data;
   const data = new Uint8Array(size * size * 4);
   const geometry =
     mode === "fill"
@@ -75,7 +132,7 @@ function scaleFrame(image, options = {}) {
         data[destination] = background[0];
         data[destination + 1] = background[1];
         data[destination + 2] = background[2];
-        data[destination + 3] = 255;
+        data[destination + 3] = Math.round(backgroundAlpha * 255);
         continue;
       }
       const sourceX = Math.min(
@@ -88,9 +145,15 @@ function scaleFrame(image, options = {}) {
       );
       const origin = (sourceY * image.width + sourceX) * 4;
       const alpha = source[origin + 3] / 255;
+      // Source-over with the background: an opaque source pixel never fades, while a transparent
+      // or partially transparent one lets the background (and its alpha) through.
+      const coverage = backgroundAlpha * (1 - alpha);
+      const outAlpha = alpha + coverage;
       for (let channel = 0; channel < 3; channel += 1)
-        data[destination + channel] = Math.round(source[origin + channel] * alpha + background[channel] * (1 - alpha));
-      data[destination + 3] = 255;
+        data[destination + channel] = outAlpha === 0
+          ? background[channel]
+          : Math.round((source[origin + channel] * alpha + background[channel] * coverage) / outAlpha);
+      data[destination + 3] = Math.round(outAlpha * 255);
     }
   }
   return { width: size, height: size, data };
@@ -106,4 +169,12 @@ function frameToKeyDataUri(buffer, options) {
   return `data:image/png;base64,${frameToKeyPng(buffer, options).toString("base64")}`;
 }
 
-module.exports = { KEY_SIZE, SCALE_MODES, fitFrame, frameToKeyDataUri, frameToKeyPng, scaleFrame };
+module.exports = {
+  KEY_SIZE,
+  SCALE_MODES,
+  fitFrame,
+  frameToKeyDataUri,
+  frameToKeyPng,
+  removeEdgeConnectedBlack,
+  scaleFrame,
+};

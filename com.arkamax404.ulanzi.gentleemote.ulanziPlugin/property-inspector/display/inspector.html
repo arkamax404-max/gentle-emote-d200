@@ -20,9 +20,21 @@
           <label class="choice"><input type="radio" name="scaleMode" value="pixel" checked /> Pixel (3x, crisp)</label>
           <label class="choice"><input type="radio" name="scaleMode" value="fill" /> Fill (stretch to key)</label>
         </fieldset>
+        <fieldset>
+          <legend>Background</legend>
+          <label>Background color
+            <input name="backgroundColor" type="color" value="#000000" />
+          </label>
+          <label>Background transparency
+            <input name="backgroundTransparency" type="range" min="0" max="100" step="1" value="0" />
+            <output id="transparency-value" for="backgroundTransparency">0%</output>
+          </label>
+          <label class="choice"><input type="checkbox" name="removeBlackBackground" /> Remove black background</label>
+        </fieldset>
         <output id="status" role="status">Connecting…</output>
       </form>
-      <p class="note">Use port 0 to let the system pick a free port. When the configured port is taken, the next free one is used and shown on the key. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network.</p>
+      <p class="note">Use port 0 to let the system pick a free port. When the configured port is taken, the next free one is used and shown on the key. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network. The background color and transparency apply behind the emote — and to the waiting placeholder before any frame arrives: transparent areas of the received PNG (and the letterbox margins) show it, but opaque pixels in the received PNG are not replaced.</p>
+      <p class="note">«Remove black background» clears only the pure black pixels connected to the image edge (the usual PNG padding), so interior black details are kept. Warning: black parts of the avatar that touch the background may also disappear. The option is off by default so you can compare and revert it at any time.</p>
     </main>
     <script src="../lib/host-api.js"></script>
     <script src="inspector.js"></script>

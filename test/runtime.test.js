@@ -12,6 +12,17 @@ function framePng(size = 64, color = [40, 90, 200, 255]) {
   return encodePng({ width: size, height: size, data });
 }
 
+/** A frame with an opaque black edge ring around a coloured centre. */
+function borderedFramePng(size = 64, color = [40, 90, 200, 255]) {
+  const data = new Uint8Array(size * size * 4);
+  for (let index = 0; index < size * size; index += 1) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    data.set(x === 0 || y === 0 || x === size - 1 || y === size - 1 ? [0, 0, 0, 255] : color, index * 4);
+  }
+  return encodePng({ width: size, height: size, data });
+}
+
 function emoteHeaders(sequence = 1) {
   return {
     "content-type": "image/png",
@@ -176,6 +187,75 @@ test("a scale mode change re-renders the newest frame", async () => {
   }
 });
 
+test("a background settings change re-renders the newest frame", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
+    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/svg+xml")));
+    const before = host.last().data;
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, backgroundColor: "#112233" } });
+    const after = host.last().data;
+    assert.notEqual(before, after);
+    // The letterbox margin now carries the configured background colour, still opaque.
+    const png = keyPng(after);
+    assert.deepEqual([...png.data.subarray(0, 4)], [0x11, 0x22, 0x33, 255]);
+    void runtime;
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a background transparency change re-renders with transparent margins", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
+    await waitFor(() => host.icons.some((icon) => icon.data.startsWith("data:image/svg+xml")));
+    host.emit("paramfromplugin", { context: "key-1", param: { port: 0, backgroundTransparency: 100 } });
+    const png = keyPng(host.last().data);
+    // Fully transparent background: the margins carry alpha 0, the opaque source stays visible.
+    assert.deepEqual([...png.data.subarray(0, 4)], [0, 0, 0, 0]);
+    const center = (96 * KEY_SIZE + 96) * 4;
+    assert.deepEqual([...png.data.subarray(center, center + 4)], [40, 90, 200, 255]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("background settings persist across later parameter updates", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0, backgroundColor: "#abcdef", backgroundTransparency: 30 } });
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, scaleMode: "fill" } });
+    assert.equal(runtime.contexts.get("key-1").settings.backgroundColor, "#abcdef");
+    assert.equal(runtime.contexts.get("key-1").settings.backgroundTransparency, 30);
+    assert.equal(runtime.contexts.get("key-1").settings.scaleMode, "fill");
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("the no-frame placeholder honours the configured background", async () => {
+  // Envelope shape as the Ulanzi host delivers it on add: the stored ActionParam.
+  // Regression: the user set #ffaa00 / 37% and the key stayed black because the
+  // waiting placeholder ignored the background settings.
+  const { host, runtime } = await startRuntime();
+  try {
+    host.emit("add", {
+      context: "key-1",
+      param: { port: 0, scaleMode: "pixel", backgroundColor: "#ffaa00", backgroundTransparency: 37 },
+    });
+    const icon = host.last();
+    assert.equal(icon.context, "key-1");
+    const svg = Buffer.from(icon.data.split(",")[1], "base64").toString("utf8");
+    assert.match(svg, /fill="rgb\(255,170,0\)"/);
+    assert.match(svg, /fill-opacity="0\.63"/);
+  } finally {
+    await runtime.stop();
+  }
+});
+
 test("a key is not painted before the receiver has an address", async () => {
   const host = createStubHost();
   const runtime = new EmoteKeyRuntime({ host, server: new EmoteServer({ port: 0 }), log: createLog() });
@@ -188,6 +268,45 @@ test("a key is not painted before the receiver has an address", async () => {
     assert.equal(host.icons.length, 1);
     const svg = Buffer.from(host.icons[0].data.split(",")[1], "base64").toString("utf8");
     assert.match(svg, new RegExp(`127\.0\.0\.1:${runtime.server.port}`));
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("toggling the black-removal setting re-renders with a distinct cached payload", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0, backgroundColor: "#112233" } });
+    await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: borderedFramePng() });
+    await waitFor(() => host.icons.some((icon) => {
+      if (!icon.data.startsWith("data:image/svg+xml")) return false;
+      return Buffer.from(icon.data.split(",")[1], "base64").toString("utf8").includes('href="data:image/png;base64,');
+    }));
+    const before = host.last().data;
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, backgroundColor: "#112233", removeBlackBackground: true } });
+    const after = host.last().data;
+    assert.notEqual(before, after);
+    // The removed edge ring now carries the configured background instead of opaque black.
+    const png = keyPng(after);
+    assert.deepEqual([...png.data.subarray(0, 4)], [0x11, 0x22, 0x33, 255]);
+    // Turning the option off serves the cached legacy payload again.
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, backgroundColor: "#112233", removeBlackBackground: false } });
+    assert.equal(host.last().data, before);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("the black-removal setting persists across later parameter updates", async () => {
+  const { host, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0, removeBlackBackground: true } });
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, scaleMode: "fill" } });
+    assert.equal(runtime.contexts.get("key-1").settings.removeBlackBackground, true);
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, removeBlackBackground: false } });
+    assert.equal(runtime.contexts.get("key-1").settings.removeBlackBackground, false);
+    host.emit("paramfromapp", { context: "key-1", param: { port: 0, scaleMode: "pixel" } });
+    assert.equal(runtime.contexts.get("key-1").settings.removeBlackBackground, false);
   } finally {
     await runtime.stop();
   }

@@ -93,10 +93,25 @@ A D200 key is a 196x196 pixel canvas. A 64x64 frame gets an **exact 3x nearest-n
 (192x192) centred on a black canvas with a 2px letterbox:
 
 - integer factors keep every source pixel the same size, so pixel-art edges stay crisp;
-- transparent source pixels are composited over the canvas colour (black by default);
+- transparent source pixels are composited over the canvas colour (black and opaque by default, or
+  the configured **Background color** and **Background transparency**);
+- the background alpha composites source-over: opaque frame pixels never fade, and the letterbox
+  margins carry exactly the configured background alpha (0% opaque … 100% invisible);
 - non-square frames keep their aspect ratio on the same integer rule;
 - sources larger than the key fall back to a proportional nearest-neighbour downscale;
 - the optional **Fill** mode stretches the frame across the whole key when a full-bleed look is wanted.
+- the optional **Remove black background** checkbox clears only the pure black pixels connected to
+  the image edge (the usual PNG padding) before scaling, so interior black details are kept; the
+  cleared area then shows the configured background color and transparency.
+
+Two limitations to know about: black parts of the avatar that touch the background may also
+disappear when the removal is on, and the option is **off by default** so the default output stays
+exactly as before — enable it per key and revert it at any time.
+
+Limitation: the background color and transparency live behind the emote. Transparent areas of the
+received PNG (and the margins) show it, but **opaque pixels in the received PNG are not replaced** —
+the key paints whatever alpha the payload carries, and real alpha rendering on the D200 hardware
+depends on Ulanzi Studio (not verified on device here).
 
 gentle-emote already draws the status/phase labels into the PNG it sends, so no text is redrawn here.
 
@@ -122,6 +137,12 @@ Per key, from the Property Inspector:
 
 - **Local port** — `0` for automatic, otherwise 1-65535.
 - **Scaling** — `Pixel` (3x, default) or `Fill`.
+- **Background color** — `#rrggbb` behind the emote and the waiting placeholder (default black).
+- **Background transparency** — 0% (opaque, default) to 100% (fully transparent background); it also
+  applies to the placeholder shown before any frame arrives.
+- **Remove black background** — off by default; when enabled, edge-connected pure black
+  (`RGB 0,0,0`) pixels are treated as background. Black avatar regions joined to the background may
+  also be removed.
 
 Several keys can be placed at once: they all mirror the same newest frame, and the most recently
 applied port wins because one receiver serves the whole plugin.
