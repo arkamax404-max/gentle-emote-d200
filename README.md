@@ -88,12 +88,15 @@ undecodable PNG, `413` above 256 KiB. Metadata is optional and bounded: an unkno
 Delivery is latest-frame-only. gentle-emote already drops intermediate animation frames, so the key
 always paints the newest selection instead of replaying a backlog.
 
-## Session lifecycle and focus transport
+## Press-to-focus (DEDICATED-SUCCESS-v1)
 
-Session-aware frames register their session, stream and exact unsigned 64-bit sequence.
-The receiver delivers pending opaque focus requests on fresh frame or heartbeat responses
-through `X-Emote-Focus-Request-Id`. The emitter acknowledges confirmed success with
-`X-Emote-Focus-Ack`; legacy frames remain display-only.
+Pressing a D200 key asks the emitter to focus the Herdr pane for the session shown on that key.
+Frames that additionally carry `X-Emote-Session-Id` (≤ 128 chars of
+`A-Za-z0-9_.:-`) register a focus-capable identity beside their stream id and sequence; sequences
+are compared as exact ASCII decimals (`0007` and `7` are the same number, leading zeros kept out of
+the comparison). Pressing a key then queues an opaque request id for exactly the identity the key
+currently paints, delivered on the next fresh frame or heartbeat for that identity through the
+`X-Emote-Focus-Request-Id` response header; the emitter confirms with `X-Emote-Focus-Ack`.
 
 Two small exact-path routes carry lifecycle traffic (`Content-Type` ignored, empty body required):
 
@@ -174,8 +177,11 @@ applied port wins because one receiver serves the whole plugin.
 
 ## Key press
 
-There is no key behaviour yet (by design): pressing the key only redraws the newest frame. Nothing is
-sent back to gentle-emote, and no settings change.
+Pressing the key redraws the newest frame and requests focus for its last displayed session when
+valid session metadata is available. The emitter must support DEDICATED-SUCCESS-v1 and be reloaded
+after its D200 focus update. Legacy frames remain display-only; pressing never changes key settings.
+The emitter acknowledges only confirmed focus success. Selecting a Herdr pane does not necessarily
+bring the terminal window to the foreground.
 
 ## Development
 

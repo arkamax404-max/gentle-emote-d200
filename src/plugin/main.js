@@ -68,7 +68,7 @@ class EmoteKeyRuntime {
     this.host.onParamFromApp((message) => this.applyContext(message));
     this.host.onParamFromPlugin((message) => this.applyContext(message));
     this.host.onSetActive((message) => this.setActive(message));
-    this.host.onRun((message) => this.redraw(message.context));
+    this.host.onRun((message) => this.onRun(message?.context));
     this.host.onClear((message) => this.clear(message));
     await this.server.start();
     this.logLine(`receiver bound: ${this.server.target ?? "none"} (fallback=${this.server.fallback})`);
@@ -106,7 +106,29 @@ class EmoteKeyRuntime {
     if (entry.active) this.redraw(message.context);
   }
 
-  /** A key press has no behaviour beyond showing the newest frame (spec S3). */
+  /**
+   * A key press repaints the newest frame (legacy behaviour) and, for an existing active
+   * key, queues a focus request for the identity the key already showed before the
+   * press — never for whatever frame the global receiver happens to hold at press time.
+   * Unknown keys, inactive keys and legacy frames never queue focus, and a queued no-op
+   * results when the painted identity has meanwhile retired, closed or expired.
+   */
+  onRun(context) {
+    const entry = this.contexts.get(context);
+    // Snapshot the focus target before any repaint: only a successfully painted
+    // focus-capable frame established it, so the press follows what is on screen.
+    const displayed = entry && entry.active && entry.displayed ? { ...entry.displayed } : null;
+    try {
+      this.redraw(context);
+    } catch {
+      /* a failing paint must never break the focus press itself */
+    }
+    if (!displayed) return;
+    const id = this.server.sessions?.press(displayed.session, displayed.stream) ?? null;
+    if (id) this.logLine(`focus queued: ${context} session=${displayed.session} id=${id}`);
+  }
+
+  /** A key press has no other behaviour beyond showing the newest frame (spec S3). */
   redraw(context) {
     const entry = this.contexts.get(context);
     if (!entry || !entry.active) return;
@@ -115,7 +137,18 @@ class EmoteKeyRuntime {
     if (!frame && !this.server.target) return;
     const data = frame ? this.frameUri(frame, entry.settings) : this.placeholderUri(entry.settings);
     this.logLine(`icon -> ${context} ${data.slice(0, 26)} ${data.length}b mode=${entry.settings.scaleMode}`);
-    this.host.setBaseDataIcon(context, data);
+    try {
+      this.host.setBaseDataIcon(context, data);
+    } catch {
+      // The paint failed: the key still shows the previous image, so its last
+      // successfully painted identity stays valid and untouched.
+      return;
+    }
+    // The displayed identity is recorded only after the paint actually succeeded, and it
+    // is whatever went on screen — not a global lastFrame guess made at press time.
+    entry.displayed = frame?.focusCapable && frame.sessionId && frame.streamId
+      ? { session: frame.sessionId, stream: frame.streamId }
+      : null;
   }
 
   renderAll() {
@@ -152,8 +185,7 @@ class EmoteKeyRuntime {
     this.cache.clear();
     await this.server.stop();
     this.started = false;
-  }
-}
+  }}
 
 function start() {
   const host = new HostClient();

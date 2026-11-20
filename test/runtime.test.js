@@ -78,10 +78,32 @@ async function waitFor(condition, timeoutMs = 2000) {
 async function startRuntime(options = {}) {
   const host = createStubHost();
   const log = createLog();
-  const server = new EmoteServer({ port: 0 });
+  const server = new EmoteServer({ port: 0, ...options });
   const runtime = new EmoteKeyRuntime({ host, server, log, ...options });
   await runtime.start();
   return { host, log, server, runtime };
+}
+
+// --- focus activation helpers (task T2/S1) ---
+
+function focusHeaders({ session = "sess-a", stream = "stream-a", sequence = 1 } = {}) {
+  return {
+    "content-type": "image/png",
+    "x-emote-version": "1",
+    "x-emote-session-id": session,
+    "x-emote-stream-id": stream,
+    "x-emote-sequence": String(sequence),
+  };
+}
+
+function fakeClock() {
+  const state = { nowMs: 1_000_000 };
+  return {
+    now: () => state.nowMs,
+    advance: (ms) => {
+      state.nowMs += ms;
+    },
+  };
 }
 
 /** A key icon is an SVG payload that embeds the scaled 196x196 PNG. */
@@ -345,5 +367,187 @@ test("a busy port falls back and the key shows the port in use", async () => {
   } finally {
     await runtime.stop();
     await first.stop();
+  }
+});
+
+// --- focus activation on key press (task T2/S1) ---
+
+async function postFrame(server, overrides = {}, body = framePng()) {
+  return fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: focusHeaders(overrides), body });
+}
+
+async function waitFrameIcon(host) {
+  await waitFor(() => host.icons.some((icon) => {
+    if (!icon.data.startsWith("data:image/svg+xml")) return false;
+    return Buffer.from(icon.data.split(",")[1], "base64").toString("utf8").includes('href="data:image/png;base64,');
+  }));
+}
+
+test("pressing the key queues focus for exactly the displayed frame's session and stream", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    // Without a press, accepted frames deliver nothing.
+    const unrequested = await postFrame(server, { sequence: 2 });
+    assert.equal(unrequested.headers.get("x-emote-focus-request-id"), null);
+    host.emit("run", { context: "key-1" });
+    const requested = await postFrame(server, { sequence: 3 });
+    assert.equal(requested.status, 204);
+    assert.equal(await requested.text(), "");
+    assert.ok(requested.headers.get("x-emote-focus-request-id"));
+    // The request follows the session that was on screen, not any other session.
+    await postFrame(server, { session: "sess-b", stream: "stream-b", sequence: 1 });
+    const other = await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: focusHeaders({ session: "sess-b", stream: "stream-b", sequence: 2 }), body: framePng() });
+    assert.equal(other.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a heartbeat neither repaints the key nor switches the focused identity", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    const iconsAfterFrame = host.icons.length;
+    const beat = await fetch(`http://127.0.0.1:${server.port}/emote/heartbeat`, {
+      method: "POST",
+      headers: { "x-emote-version": "1", "x-emote-session-id": "sess-a", "x-emote-stream-id": "stream-a", "x-emote-sequence": "2" },
+      body: Buffer.alloc(0),
+    });
+    assert.equal(beat.status, 204);
+    assert.equal(host.icons.length, iconsAfterFrame);
+    host.emit("run", { context: "key-1" });
+    const requested = await postFrame(server, { sequence: 3 });
+    assert.ok(requested.headers.get("x-emote-focus-request-id"));
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("legacy frames stay visible but can never request, deliver or ack focus", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
+    await waitFrameIcon(host);
+    host.emit("run", { context: "key-1" });
+    const response = await postFrame(server, { sequence: 1 });
+    assert.equal(response.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a replay frame does not replace the painted frame identity", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 5 });
+    await waitFrameIcon(host);
+    const iconsAfterFrame = host.icons.length;
+    const replayed = await postFrame(server, { sequence: 4 });
+    assert.equal(replayed.status, 204);
+    assert.equal(host.icons.length, iconsAfterFrame);
+    assert.equal(server.lastFrame.sequence, 5);
+    host.emit("run", { context: "key-1" });
+    const requested = await postFrame(server, { sequence: 6 });
+    assert.ok(requested.headers.get("x-emote-focus-request-id"));
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("after a close, pressing the key is a focus no-op", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    const closed = await fetch(`http://127.0.0.1:${server.port}/emote/close`, {
+      method: "POST",
+      headers: { "x-emote-version": "1", "x-emote-session-id": "sess-a", "x-emote-stream-id": "stream-a", "x-emote-sequence": "2" },
+      body: Buffer.alloc(0),
+    });
+    assert.equal(closed.status, 204);
+    host.emit("run", { context: "key-1" });
+    // A takeover after the close must not deliver a stale queued request.
+    const takeover = await postFrame(server, { stream: "stream-b", sequence: 1 });
+    assert.equal(takeover.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("an expired lease makes the press a focus no-op until fresh traffic reactivates", async () => {
+  const clock = fakeClock();
+  const { host, server, runtime } = await startRuntime({ now: clock.now });
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    const iconsAfterFrame = host.icons.length;
+    clock.advance(30_001);
+    host.emit("run", { context: "key-1" });
+    const requested = await postFrame(server, { sequence: 2 });
+    assert.equal(requested.headers.get("x-emote-focus-request-id"), null);
+    // The fresh frame reactivated the session and repainted the key.
+    await waitFor(() => host.icons.length > iconsAfterFrame);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("unknown and inactive keys never queue focus", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    host.emit("run", { context: "ghost" });
+    host.emit("setactive", { context: "key-1", active: false });
+    host.emit("run", { context: "key-1" });
+    const response = await postFrame(server, { sequence: 2 });
+    assert.equal(response.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("pressing focuses the last successfully painted identity, never the newest frame", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitFrameIcon(host);
+    // Fail the paint for key-1: the key stays on what it already shows (sess-a).
+    const paint = host.setBaseDataIcon;
+    const failPaint = (context, data) => {
+      if (context === "key-1") throw new Error("paint failed");
+      return paint.call(host, context, data);
+    };
+    host.setBaseDataIcon = failPaint;
+    // A newer LEGACY frame exists; it never reached the key, so it must never become
+    // the focus target and the failed paint must not drop the painted identity.
+    await fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // The press must not throw and must target the painted identity.
+    host.emit("run", { context: "key-1" });
+    host.setBaseDataIcon = paint;
+    const focused = await postFrame(server, { sequence: 2 });
+    assert.ok(focused.headers.get("x-emote-focus-request-id"), "the painted identity must be focused");
+    // If that identity retired meanwhile, the press against it is a no-op: nothing is
+    // queued and the next frames for the taking-over identity carry no focus id.
+    host.setBaseDataIcon = failPaint;
+    await postFrame(server, { session: "sess-b", stream: "stream-b", sequence: 1 }); // takeover
+    host.emit("run", { context: "key-1" });
+    host.setBaseDataIcon = paint;
+    const afterRetired = await postFrame(server, { session: "sess-b", stream: "stream-b", sequence: 2 });
+    assert.equal(afterRetired.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
   }
 });
