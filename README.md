@@ -154,16 +154,19 @@ the way of the rest of the ecosystem:
 | `emote-display-simulator` (browser preview) | 8000 |
 | ESP32 display firmware | 80 (`POST /emote`, `GET /health`) |
 
-Port `0` asks the system for a free port. When the configured port is already taken (a second
-instance or another tool), the next free port of the series is used and the key shows the port
-actually bound — the plugin never fails, and it never steals the simulator's 8000 unless you ask for
-it explicitly.
+Port `0` asks the system for a free port; an OS-chosen port is shown on the key once it is bound.
+Fixed configured ports are strict: the receiver binds exactly the port you set and never switches
+on its own. When a fixed port is already taken (a second instance or another tool), the keys on
+that port show a clear `PORT IN USE` error with the configured address instead of a frame — no
+stale image, no silent fallback — and the receiver for other port groups keeps working. Free the
+port (or reconfigure the key) and the affected keys recover on the next settings change.
 
 ## Settings
 
 Per key, from the Property Inspector:
 
-- **Local port** — `0` for automatic, otherwise 1-65535.
+- **Local port** — `0` to let the system pick a free port, otherwise an exact fixed port 1-65535;
+  a taken fixed port is reported as a visible key error, never auto-replaced.
 - **Scaling** — `Pixel` (3x, default) or `Fill`.
 - **Background color** — `#rrggbb` behind the emote and the waiting placeholder (default black).
 - **Background transparency** — 0% (opaque, default) to 100% (fully transparent background); it also
@@ -172,8 +175,12 @@ Per key, from the Property Inspector:
   (`RGB 0,0,0`) pixels are treated as background. Black avatar regions joined to the background may
   also be removed.
 
-Several keys can be placed at once: they all mirror the same newest frame, and the most recently
-applied port wins because one receiver serves the whole plugin.
+Several keys can be placed at once, grouped by their configured port: keys sharing a port mirror
+one receiver's newest frame, while keys on different ports are fully independent — their own
+receiver, frame, focus queue and render cache. A key's port change drops the old receiver's frame
+and focus association, and a port group's receiver stops as soon as its last key is removed or
+re-pointed. Pressing a key requests focus for the session shown on that key, routed through that
+key's own port group.
 
 ## Key press
 
@@ -197,7 +204,7 @@ Layout:
 src/plugin/png.js            PNG decode/encode on node:zlib (no dependencies)
 src/plugin/scale.js          64x64 -> 196x196 key rendering
 src/plugin/emote-protocol.js protocol v1 parsing and validation
-src/plugin/emote-server.js   loopback HTTP receiver with port fallback
+src/plugin/emote-server.js   loopback HTTP receiver, one strict receiver per configured port
 src/plugin/host-client.js    zero-dependency WebSocket client for Ulanzi Studio
 src/plugin/main.js           key runtime wiring
 com.arkamax404.ulanzi.gentleemote.ulanziPlugin/

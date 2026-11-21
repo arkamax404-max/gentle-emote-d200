@@ -282,11 +282,11 @@ test("a key is not painted before the receiver has an address", async () => {
   const host = createStubHost();
   const runtime = new EmoteKeyRuntime({ host, server: new EmoteServer({ port: 0 }), log: createLog() });
   try {
-    runtime.contexts.set("key-1", { active: true, settings: { port: 0, scaleMode: "pixel" } });
+    runtime.contexts.set("key-1", { active: true, port: 0, settings: { port: 0, scaleMode: "pixel" } });
     runtime.redraw("key-1");
     assert.equal(host.icons.length, 0);
     await runtime.server.start();
-    runtime.redraw("key-1");
+    await runtime.ensureGroup(0); // the post-bind pass paints the group's waiting placeholder
     assert.equal(host.icons.length, 1);
     const svg = Buffer.from(host.icons[0].data.split(",")[1], "base64").toString("utf8");
     assert.match(svg, new RegExp(`127\.0\.0\.1:${runtime.server.port}`));
@@ -348,25 +348,44 @@ test("removing the last key releases the port", async () => {
   }
 });
 
-test("a busy port falls back and the key shows the port in use", async () => {
-  const first = new EmoteServer({ port: 0 });
-  await first.start();
-  const host = createStubHost();
-  const log = createLog();
-  const server = new EmoteServer({ port: 0 });
-  const runtime = new EmoteKeyRuntime({ host, server, log });
-  await runtime.start();
+test("an occupied fixed port shows an error on affected keys and healthy groups keep working", async () => {
+  const squatter = new EmoteServer({ port: 8218 });
+  await squatter.start();
+  const { host, server, runtime } = await startRuntime();
   try {
-    host.emit("add", { context: "key-1", param: { port: first.port } });
-    await waitFor(() => server.listening && server.port !== first.port);
-    await waitFor(() => host.icons.some((icon) => {
+    host.emit("add", { context: "key-bad", param: { port: 8218 } });
+    host.emit("add", { context: "key-good", param: { port: 0 } });
+    // The affected key states the conflict visibly: the configured address plus a clear error.
+    await waitFor(() => {
+      const icon = iconsFor(host, "key-bad").at(-1);
+      if (!icon || !icon.data.startsWith("data:image/svg+xml")) return false;
       const svg = Buffer.from(icon.data.split(",")[1], "base64").toString("utf8");
-      return svg.includes(`127.0.0.1:${server.port}`);
-    }));
-    assert.ok(log.lines.some((line) => line.includes("unavailable")));
+      return svg.includes("PORT IN USE") && svg.includes("127.0.0.1:8218");
+    });
+    // No frame image and no stale content survives on the blocked key.
+    assert.ok(!isFrameIcon(iconsFor(host, "key-bad").at(-1)));
+    const squatterResponse = await fetch(`http://127.0.0.1:8218/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(64, [5, 5, 5, 255]),
+    });
+    assert.equal(squatterResponse.status, 204);
+    // The healthy group still receives and paints normally.
+    const badIcons = iconsFor(host, "key-bad").length;
+    const response = await fetch(`http://127.0.0.1:${server.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(64, [90, 40, 200, 255]),
+    });
+    assert.equal(response.status, 204);
+    await waitFor(() => iconsFor(host, "key-good").length >= 2);
+    assert.equal(iconsFor(host, "key-bad").length, badIcons);
+    assert.equal(iconsFor(host, "key-good").length, 2);
+    // The blocked key never carried a frame at any point.
+    for (const icon of iconsFor(host, "key-bad")) assert.ok(!isFrameIcon(icon));
   } finally {
     await runtime.stop();
-    await first.stop();
+    await squatter.stop();
   }
 });
 
@@ -547,6 +566,241 @@ test("pressing focuses the last successfully painted identity, never the newest 
     host.setBaseDataIcon = paint;
     const afterRetired = await postFrame(server, { session: "sess-b", stream: "stream-b", sequence: 2 });
     assert.equal(afterRetired.headers.get("x-emote-focus-request-id"), null);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+// --- per-port receiver isolation (task T1/S1-S3) ---
+
+function iconsFor(host, context) {
+  return host.icons.filter((icon) => icon.context === context);
+}
+
+function isFrameIcon(icon) {
+  if (!icon || !icon.data.startsWith("data:image/svg+xml")) return false;
+  return Buffer.from(icon.data.split(",")[1], "base64").toString("utf8").includes('href="data:image/png;base64,');
+}
+
+async function waitGroupListening(runtime, port) {
+  await waitFor(() => (runtime.groups ?? new Map()).get(port)?.server?.listening === true);
+}
+
+async function waitKeyPainted(host, context, predicate = isFrameIcon) {
+  await waitFor(() => predicate(iconsFor(host, context).at(-1)));
+}
+
+const PORT_SHARING_A = 8221;
+const PORT_SHARING_B = 8222;
+
+test("keys on different configured ports show independent frames despite equal frame ids", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    host.emit("add", { context: "key-2", param: { port: 8216 } });
+    await waitGroupListening(runtime, 8216);
+    const other = (runtime.groups ?? new Map()).get(8216)?.server;
+    assert.ok(other, "the second port got its own receiver");
+    // Both groups start with a fresh frame counter, so both frames carry id 1.
+    const placeholders = iconsFor(host, "key-2").length; // the bound group painted its waiting key
+    const first = await fetch(`http://127.0.0.1:${server.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(64, [200, 40, 40, 255]),
+    });
+    assert.equal(first.status, 204);
+    await waitKeyPainted(host, "key-1");
+    await waitKeyPainted(host, "key-2", (icon) => Boolean(icon) && !isFrameIcon(icon));
+    // The frame of key-1's port never repainted key-2.
+    assert.equal(iconsFor(host, "key-2").length, placeholders);
+    const second = await fetch(`http://127.0.0.1:${other.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(64, [40, 200, 40, 255]),
+    });
+    assert.equal(second.status, 204);
+    await waitKeyPainted(host, "key-2");
+    assert.equal(server.lastFrame.id, other.lastFrame.id);
+    assert.equal(iconsFor(host, "key-2").length, placeholders + 1);
+    const center = (96 * KEY_SIZE + 96) * 4;
+    const png1 = keyPng(iconsFor(host, "key-1").at(-1).data);
+    const png2 = keyPng(iconsFor(host, "key-2").at(-1).data);
+    assert.deepEqual([...png1.data.subarray(center, center + 4)], [200, 40, 40, 255]);
+    assert.deepEqual([...png2.data.subarray(center, center + 4)], [40, 200, 40, 255]);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("keys sharing a configured fixed port mirror one receiver's frame", async () => {
+  const { host, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 8217 } });
+    host.emit("add", { context: "key-2", param: { port: 8217 } });
+    await waitGroupListening(runtime, 8217);
+    const target = (runtime.groups ?? new Map()).get(8217)?.server;
+    assert.ok(target, "both fixed-port keys share exactly one receiver");
+    const response = await fetch(`http://127.0.0.1:${target.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(),
+    });
+    assert.equal(response.status, 204);
+    await waitKeyPainted(host, "key-1");
+    await waitKeyPainted(host, "key-2");
+    assert.equal(iconsFor(host, "key-1").at(-1).data, iconsFor(host, "key-2").at(-1).data);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("a press queues focus only through the key's own port group", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    host.emit("add", { context: "key-2", param: { port: 8219 } });
+    await waitGroupListening(runtime, 8219);
+    const other = (runtime.groups ?? new Map()).get(8219)?.server;
+    assert.ok(other, "the second port got its own receiver");
+    const first = await postFrame(server, { sequence: 1 });
+    assert.equal(first.status, 204);
+    const second = await postFrame(other, { session: "sess-b", stream: "stream-b", sequence: 1 });
+    assert.equal(second.status, 204);
+    await waitKeyPainted(host, "key-1");
+    await waitKeyPainted(host, "key-2");
+    // Pressing key-2 (sess-b on its own port) must not touch the other group's queue.
+    host.emit("run", { context: "key-2" });
+    const routed = await postFrame(other, { session: "sess-b", stream: "stream-b", sequence: 2 });
+    const routedId = routed.headers.get("x-emote-focus-request-id");
+    assert.ok(routedId, "the pressed key's group delivers focus");
+    const notRouted = await postFrame(server, { sequence: 2 });
+    assert.equal(notRouted.headers.get("x-emote-focus-request-id"), null);
+    // Pressing key-1 routes through its own group instead.
+    host.emit("run", { context: "key-1" });
+    const viaOwn = await postFrame(server, { sequence: 3 });
+    assert.ok(viaOwn.headers.get("x-emote-focus-request-id"), "the other group still queues its own identity");
+    // An undelivered-ack request stays pending on its own group only (TTL redelivery).
+    const cross = await postFrame(other, { session: "sess-b", stream: "stream-b", sequence: 3 });
+    assert.equal(cross.headers.get("x-emote-focus-request-id"), routedId);
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("changing a key's port clears the displayed identity and retires the old receiver", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: 0 } });
+    await postFrame(server, { sequence: 1 });
+    await waitKeyPainted(host, "key-1");
+    host.emit("paramfromapp", { context: "key-1", param: { port: 8220 } });
+    await waitGroupListening(runtime, 8220);
+    const entry = runtime.contexts.get("key-1");
+    assert.equal(entry.port, 8220);
+    // The frame and focus association of the old port must not survive the move.
+    assert.equal(entry.displayed, null);
+    await waitFor(() => (runtime.groups ?? new Map()).has(0) === false);
+    // The moved key shows the new port's address, no stale frame from the old receiver.
+    await waitKeyPainted(host, "key-1", (icon) => {
+      if (!icon || isFrameIcon(icon)) return false;
+      const svg = Buffer.from(icon.data.split(",")[1], "base64").toString("utf8");
+      return svg.includes("127.0.0.1:8220");
+    });
+    assert.ok(!isFrameIcon(iconsFor(host, "key-1").at(-1)));
+    host.emit("run", { context: "key-1" });
+    const fresh = await postFrame((runtime.groups ?? new Map()).get(8220).server, { session: "sess-n", stream: "stream-n", sequence: 1 });
+    assert.equal(fresh.headers.get("x-emote-focus-request-id"), null);
+    // The old receiver was stopped: nothing answers on the released port anymore.
+    await assert.rejects(fetch(`http://127.0.0.1:${server.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() }));
+  } finally {
+    await runtime.stop();
+  }
+});
+
+test("ports are released only when their last key leaves; rapid events keep one receiver", async () => {
+  const { host, server, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: PORT_SHARING_A } });
+    host.emit("add", { context: "key-2", param: { port: PORT_SHARING_A } });
+    host.emit("add", { context: "key-free", param: { port: PORT_SHARING_B } });
+    const groups = runtime.groups ?? new Map();
+    await waitGroupListening(runtime, PORT_SHARING_A);
+    await waitGroupListening(runtime, PORT_SHARING_B);
+    const shared = groups.get(PORT_SHARING_A).server;
+    // Removing one of the two shared keys keeps their receiver; the lone key's port goes.
+    host.emit("clear", { param: [{ context: "key-1" }] });
+    host.emit("clear", { param: [{ context: "key-free" }] });
+    await waitFor(() => groups.has(PORT_SHARING_B) === false);
+    assert.equal(shared.listening, true);
+    const response = await fetch(`http://127.0.0.1:${shared.port}/emote`, { method: "POST", headers: emoteHeaders(), body: framePng() });
+    assert.equal(response.status, 204);
+    await waitKeyPainted(host, "key-2");
+    // Rapid remove + re-add on the same port: the released receiver is replaced by exactly
+    // one fresh receiver bound to the same port, with no leaked listeners.
+    host.emit("clear", { param: [{ context: "key-2" }] });
+    host.emit("add", { context: "key-1", param: { port: PORT_SHARING_A } });
+    await waitFor(() => shared.listening === false);
+    await waitGroupListening(runtime, PORT_SHARING_A);
+    const revived = groups.get(PORT_SHARING_A).server;
+    assert.notEqual(revived, shared);
+    assert.equal(groups.get(PORT_SHARING_A).port, PORT_SHARING_A);
+    assert.equal(revived.listenerCount("frame"), 1);
+    await waitFor(() => iconsFor(host, "key-1").length >= 1); // placeholder painted once
+    const before = iconsFor(host, "key-1").length;
+    const again = await fetch(`http://127.0.0.1:${revived.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(2),
+      body: framePng(64, [10, 200, 10, 255]),
+    });
+    assert.equal(again.status, 204);
+    await waitKeyPainted(host, "key-1");
+    assert.equal(iconsFor(host, "key-1").length, before + 1);
+  } finally {
+    await runtime.stop();
+    void server;
+  }
+});
+
+test("a recreated receiver on the same port paints its own frame, not the retired group's cache", async () => {
+  const { host, runtime } = await startRuntime();
+  try {
+    host.emit("add", { context: "key-1", param: { port: PORT_SHARING_A } });
+    await waitGroupListening(runtime, PORT_SHARING_A);
+    const groups = runtime.groups ?? new Map();
+    const retired = groups.get(PORT_SHARING_A).server;
+    const response = await fetch(`http://127.0.0.1:${retired.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(),
+      body: framePng(64, [200, 40, 40, 255]),
+    });
+    assert.equal(response.status, 204);
+    await waitKeyPainted(host, "key-1");
+    const center = (96 * KEY_SIZE + 96) * 4;
+    assert.deepEqual(
+      [...keyPng(iconsFor(host, "key-1").at(-1).data).data.subarray(center, center + 4)],
+      [200, 40, 40, 255],
+    );
+    // Removing the last key retires the receiver; placing the key again on the same port
+    // creates a fresh receiver whose frame ids restart at 1. The render cache must not
+    // treat that frame as the retired group's equal-id frame.
+    host.emit("clear", { param: [{ context: "key-1" }] });
+    await waitFor(() => groups.get(PORT_SHARING_A) === undefined);
+    host.emit("add", { context: "key-1", param: { port: PORT_SHARING_A } });
+    await waitGroupListening(runtime, PORT_SHARING_A);
+    const revived = groups.get(PORT_SHARING_A).server;
+    assert.notEqual(revived, retired);
+    const again = await fetch(`http://127.0.0.1:${revived.port}/emote`, {
+      method: "POST",
+      headers: emoteHeaders(1), // the fresh receiver restarts ids: this frame is id 1 again
+      body: framePng(64, [40, 200, 40, 255]),
+    });
+    assert.equal(again.status, 204);
+    assert.equal(revived.lastFrame.id, 1);
+    await waitKeyPainted(host, "key-1");
+    assert.deepEqual(
+      [...keyPng(iconsFor(host, "key-1").at(-1).data).data.subarray(center, center + 4)],
+      [40, 200, 40, 255],
+    );
   } finally {
     await runtime.stop();
   }

@@ -39,7 +39,7 @@ function saveSettings() {
   };
   $UD.sendParamFromPlugin(settings);
   applySettings();
-  status.textContent = "Saved. The key shows the port in use.";
+  status.textContent = "Saved. The key binds exactly this port; if it is taken, the key shows an error.";
 }
 
 function applySettings() {

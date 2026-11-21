@@ -9,9 +9,8 @@ const { MAX_BODY_BYTES, parseEmoteRequest, parseLifecycleRequest } = require("./
 const { FocusSessions } = require("./focus-sessions.js");
 const { decodePng } = require("./png.js");
 
-// 8003 is the port gentle-emote's /emote d200On targets; 8000 is the simulator and the ESP32 uses 80.
+// 8003 is the port gentle-emote's /emote d200On targets; the simulator uses 8000.
 const DEFAULT_PORT = 8003;
-const PORT_ATTEMPTS = 10;
 
 class EmoteServer extends EventEmitter {
   constructor(options = {}) {
@@ -23,6 +22,8 @@ class EmoteServer extends EventEmitter {
     this.now = typeof options.now === "function" ? options.now : undefined;
     this.requestedPort = port;
     this.port = 0;
+    // A fixed port that could not be bound stays reported here; ports are never replaced.
+    this.blockedPort = null;
     this.fallback = false;
     this.lastFrame = null;
     this.server = null;
@@ -48,9 +49,11 @@ class EmoteServer extends EventEmitter {
     this.requestedPort = port;
   }
 
-  /** Binds the receiver. A requested port that is already taken is not fatal: the next free
-   * port of the series is used and announced through `diagnostic`, so a simulator or another
-   * instance can own 8003 without breaking the key.
+  /** Binds the receiver on exactly the requested port. A fixed port that is already taken
+   * is a strict failure: the receiver stays down, announces the conflict once through
+   * `diagnostic` and keeps `blockedPort` set so keys can show a visible error — the port is
+   * never replaced automatically, so different port groups stay isolated. Port 0 keeps its
+   * already-supported meaning "let the OS choose"; an OS-chosen port is not a fallback.
    */
   async start() {
     this.stopped = false;
@@ -60,39 +63,23 @@ class EmoteServer extends EventEmitter {
     return { host: this.host, port: this.port, requestedPort: this.requestedPort, fallback: this.fallback, target: this.target };
   }
 
-  candidates() {
-    if (this.requestedPort === 0) return [0];
-    const series = [];
-    for (let offset = 0; offset <= PORT_ATTEMPTS; offset += 1)
-      if (this.requestedPort + offset <= 65535) series.push(this.requestedPort + offset);
-    series.push(0); // Last resort: any free port the OS hands out.
-    return series;
-  }
-
   async bind() {
     if (this.server || this.stopped) return;
-    for (const port of this.candidates()) {
-      try {
-        const bound = await this.listen(port);
-        this.port = bound;
-        // Port 0 means "let the OS choose", so the chosen port is never a fallback.
-        this.fallback = this.requestedPort !== 0 && bound !== this.requestedPort;
-        if (this.fallback)
-          this.diagnostic({
-            code: "port-in-use",
-            requestedPort: this.requestedPort,
-            port: bound,
-            message: `port ${this.requestedPort} is unavailable; listening on ${bound}`,
-          });
-        return;
-      } catch (error) {
-        this.server = null;
-        if (error.code === "EADDRINUSE") continue; // Announced once, as the chosen fallback below.
-        if (error.code !== "EACCES") return this.fail(error);
-        this.diagnostic(error);
-      }
+    try {
+      this.port = await this.listen(this.requestedPort);
+      this.blockedPort = null;
+      return;
+    } catch (error) {
+      this.server = null;
+      if (error.code !== "EADDRINUSE" && error.code !== "EACCES") return this.fail(error);
     }
     this.port = 0;
+    this.blockedPort = this.requestedPort || null;
+    this.diagnostic({
+      code: "port-in-use",
+      requestedPort: this.requestedPort,
+      message: `port ${this.requestedPort} is unavailable; concerned keys show an error and no frame`,
+    });
   }
 
   listen(port) {
@@ -141,6 +128,7 @@ class EmoteServer extends EventEmitter {
     const server = this.server;
     this.server = null;
     this.port = 0;
+    this.blockedPort = null; // a stopped receiver is not a blocked one; a fresh start retries
     if (!server) return;
     await new Promise((resolve) => server.close(() => resolve()));
   }
@@ -261,4 +249,4 @@ class EmoteServer extends EventEmitter {
   }
 }
 
-module.exports = { DEFAULT_PORT, PORT_ATTEMPTS, EmoteServer };
+module.exports = { DEFAULT_PORT, EmoteServer };

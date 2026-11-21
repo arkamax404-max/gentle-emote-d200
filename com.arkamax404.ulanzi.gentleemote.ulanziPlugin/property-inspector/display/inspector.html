@@ -33,7 +33,7 @@
         </fieldset>
         <output id="status" role="status">Connecting…</output>
       </form>
-      <p class="note">Use port 0 to let the system pick a free port. When the configured port is taken, the next free one is used and shown on the key. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network. The background color and transparency apply behind the emote — and to the waiting placeholder before any frame arrives: transparent areas of the received PNG (and the letterbox margins) show it, but opaque pixels in the received PNG are not replaced.</p>
+      <p class="note">Use port 0 to let the system pick a free port. Fixed ports are strict: the receiver binds exactly the configured port, and if it is already taken the affected keys show a PORT IN USE error instead of a frame — the port is never switched automatically. Keys that share the same configured port mirror one receiver; keys on different ports are independent. The receiver listens on 127.0.0.1 only and needs no authentication; do not expose it to a network. The background color and transparency apply behind the emote — and to the waiting placeholder before any frame arrives: transparent areas of the received PNG (and the letterbox margins) show it, but opaque pixels in the received PNG are not replaced.</p>
       <p class="note">«Remove black background» clears only the pure black pixels connected to the image edge (the usual PNG padding), so interior black details are kept. Warning: black parts of the avatar that touch the background may also disappear. The option is off by default so you can compare and revert it at any time.</p>
     </main>
     <script src="../lib/host-api.js"></script>

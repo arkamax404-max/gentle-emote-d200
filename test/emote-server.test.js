@@ -186,7 +186,7 @@ test("stop() releases the port", async () => {
   assert.equal(server.port, 0);
 });
 
-test("a busy port falls back to another free port", async () => {
+test("a busy configured port is never replaced: the receiver stays down and reports it", async () => {
   const first = new EmoteServer({ port: 0 });
   await first.start();
   const second = new EmoteServer({ port: first.port });
@@ -194,21 +194,23 @@ test("a busy port falls back to another free port", async () => {
   second.on("diagnostic", (diagnostic) => diagnostics.push(diagnostic));
   const bound = await second.start();
   try {
-    assert.equal(second.listening, true);
-    assert.notEqual(bound.port, first.port);
-    assert.ok(bound.port > 0);
-    assert.equal(bound.requestedPort, first.port);
-    assert.equal(bound.fallback, true);
+    assert.equal(second.listening, false);
+    assert.equal(bound.port, 0);
+    assert.equal(bound.target, null);
+    assert.equal(bound.fallback, false);
+    assert.equal(second.port, 0);
+    assert.equal(second.blockedPort, first.port);
     assert.equal(diagnostics.length, 1);
     assert.equal(diagnostics[0].code, "port-in-use");
-    assert.equal(diagnostics[0].port, bound.port);
-    const response = await fetch(`http://127.0.0.1:${bound.port}/emote`, {
+    assert.equal(diagnostics[0].requestedPort, first.port);
+    // The occupier is untouched and keeps serving on the configured port.
+    const response = await fetch(`http://127.0.0.1:${first.port}/emote`, {
       method: "POST",
       headers: headers(),
       body: framePng(),
     });
     assert.equal(response.status, 204);
-    assert.ok(second.lastFrame);
+    assert.ok(first.lastFrame);
   } finally {
     await second.stop();
     await first.stop();
