@@ -237,6 +237,12 @@ The raw working references for the approved art (`com.arkamax404.ulanzi.gentleem
 are inputs only and are excluded from the package by the packaging script — the originals are never
 deleted or moved.
 
+For URL-based community store discovery, the repository root also exposes optional
+[`store.json`](store.json) metadata pointing at the approved store assets — `assets/store/cover.png`
+(cover), `assets/store/banner.png` (screenshot/banner) — plus the listing description and the
+D200 device tags. It is description only and is not packaged, required at install time, or read by
+the plugin runtime.
+
 Outstanding confirmation: the official UGC upload guide is contradictory about the cover ratio — its
 initial table lists a 1:1 cover while its final text requires 2:1. This package uses a 2:1 cover and
 a 3:2 banner accordingly, but the live UGC upload form's Auto check is the authoritative source and

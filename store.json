@@ -1,0 +1,15 @@
+{
+  "cover": "assets/store/cover.png",
+  "screenshots": [
+    "assets/store/banner.png"
+  ],
+  "longDescription": "Gentle-Emotex turns a Ulanzi D200 key into a small screen for the Gentle-Emotex emitter: the pixel-art Gentleman that acts out what a coding agent is doing. Gentle-Emotex is a fork of Gentle-Emote, and this plugin is that fork's D200 receiver — the emitter runs in your terminal (Pi or Gentle Shell), while this key mirrors the frames it sends. This plugin draws only what it receives; it never redraws the sender's output or speaks for either project.\n\nHow the D200 receiver works:\n1. Receives the Gentle-Emotex external-display protocol v1 (HTTP POST with an image/png body and X-Emote-* metadata headers) on 127.0.0.1, port 8003 by default. The receiver needs an emitter extended for the D200: point the compatible emitter's externalDisplay.url at the address shown on the key.\n2. Scales each 64x64 frame with an exact 3x nearest-neighbour factor onto the 196x196 key grid, centred on a black canvas, so pixel-art edges stay crisp instead of blurring.\n3. Offers an optional Fill scaling mode that stretches the frame across the whole key.\n4. Binds strict fixed ports: the receiver uses exactly the port you configure and never switches on its own. If a fixed port is already taken (a second instance or another tool), the keys on that port show a clear PORT IN USE error instead of a frame — no stale image, no fallback. Pressing the key with legacy senders only redraws the current frame.\n5. Mirrors by port group: several keys sharing a configured port mirror one receiver's newest frame, while keys on different ports are fully independent — their own receiver, frame, focus queue and render cache.\n6. Keeps the newest frame only: the animation never lags behind the sender, because intermediate frames are dropped by design.\n7. Needs no account, no cloud service, and no network beyond the local loopback interface.\n\nPress-to-focus: pressing a key asks the emitter to focus the session shown on that key, when the session metadata allows it. Focus delivery requires a compatible emitter that supports the D200 focus protocol (DEDICATED-SUCCESS-v1); the emitter confirms only confirmed focus success, and legacy frames stay display-only.\n\nCompatibility: Ulanzi D200 with Ulanzi Studio 2.1.4 or later on Windows 10+ and macOS 12+, with a compatible external emitter (Node 20.12.2 or later) configured as the frame source.",
+  "deviceTypes": [
+    "deck"
+  ],
+  "tags": [
+    "Developer Tools",
+    "Gentle-AI",
+    "Utilities"
+  ]
+}

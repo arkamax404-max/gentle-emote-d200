@@ -152,6 +152,35 @@ test("en.json never promises an automatic port fallback and keeps focus support 
   assert.ok(!/official|Gentle AI/i.test(en.Detail), "no fabricated affiliation may appear");
 });
 
+test("root store metadata exposes the approved store assets and mirrors the en.json detail", () => {
+  // RED first: store.json does not exist yet at the repository root.
+  assert.ok(existsSync(join(ROOT, "store.json")), "the optional root store metadata file must exist");
+  const store = JSON.parse(readFileSync(join(ROOT, "store.json"), "utf8"));
+  const en = JSON.parse(readFileSync(join(PLUGIN_DIR, "en.json"), "utf8"));
+
+  assert.deepEqual(Object.keys(store), ["cover", "screenshots", "longDescription", "deviceTypes", "tags"]);
+
+  // Every referenced asset must be the approved PNG, verified by integrity signature and exact dimensions.
+  for (const relative of [store.cover, ...store.screenshots]) {
+    const png = readFileSync(join(ROOT, relative));
+    const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    assert.ok(png.subarray(0, 8).equals(signature), `referenced store asset must be a valid PNG: ${relative}`);
+    const width = png.readUInt32BE(16);
+    const height = png.readUInt32BE(20);
+    assert.ok(width > 0 && height > 0, `referenced store asset must report real dimensions: ${relative}`);
+  }
+  assert.equal(store.cover, "assets/store/cover.png");
+  assert.deepEqual(store.screenshots, ["assets/store/banner.png"]);
+  assert.equal(store.cover && readFileSync(join(ROOT, store.cover)).readUInt32BE(16), 1774, "the approved cover must keep its 1774x887 dimensions");
+  assert.equal(readFileSync(join(ROOT, store.cover)).readUInt32BE(20), 887, "the approved cover must keep its 1774x887 dimensions");
+  assert.equal(readFileSync(join(ROOT, store.screenshots[0])).readUInt32BE(16), 1536, "the approved banner must keep its 1536x1024 dimensions");
+  assert.equal(readFileSync(join(ROOT, store.screenshots[0])).readUInt32BE(20), 1024, "the approved banner must keep its 1536x1024 dimensions");
+
+  assert.deepEqual(store.deviceTypes, ["deck"]);
+  assert.ok(Array.isArray(store.tags) && store.tags.length > 0 && store.tags.every((tag) => typeof tag === "string" && tag.length > 0), "store tags must be a non-empty list of non-empty strings");
+  assert.equal(store.longDescription, en.Detail, "the store long description must reuse the approved en.json Detail verbatim");
+});
+
 test("the property inspector is transparent and the action UUID stays in sync with the runtime", () => {
   const css = readFileSync(join(PLUGIN_DIR, "property-inspector", "display", "inspector.css"), "utf8");
   assert.match(css, /body\s*\{[^}]*background:\s*transparent[^;]*;/, "the inspector body must stay transparent");
