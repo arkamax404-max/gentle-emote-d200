@@ -1,33 +1,42 @@
-# Gentle Emote for Ulanzi D200
+# Gentle-Emotex for Ulanzi D200
 
-A Ulanzi D200 key that becomes a small screen for [gentle-emote](https://github.com/efolchmontiel/gentle-emote):
-the plugin listens on a local HTTP port and mirrors every avatar frame the extension sends, so the
-key animates together with the terminal.
+Gentle-Emotex turns a Ulanzi D200 key into a small screen for the [Gentle-Emotex](https://github.com/arkamax404-max/gentle-emotex)
+emitter:
+the plugin listens on a local HTTP port and mirrors every avatar frame the emitter sends, so the
+key animates together with the terminal. Gentle-Emotex is a fork of
+[gentle-emote](https://github.com/efolchmontiel/gentle-emote), and this plugin is that fork's
+D200 receiver — it is not the terminal extension itself and it is not an official Gentle Emote or
+Ulanzi product.
 
 No account, no cloud, no outbound networking: the receiver binds `127.0.0.1` only.
 
 ## Related project
 
-[gentle-emotex](https://github.com/arkamax404-max/gentle-emotex) is the related Pi / Gentle Shell
-extension repository in this ecosystem. Configure its external display output to send avatar frames
-to this plugin: gentle-emotex runs in the terminal, while gentle-emote-d200 displays the frames on
-an Ulanzi D200 key. This plugin is a separate receiver, not the terminal extension.
+The external emitter lives in the [gentle-emotex](https://github.com/arkamax404-max/gentle-emotex)
+repository, the Pi / Gentle Shell extension fork of gentle-emote in this ecosystem. Configure the
+emitter's external display output to send avatar frames to this plugin: the emitter runs in the
+terminal, while gentle-emote-d200 (the plugin you are reading about) displays the frames on
+an Ulanzi D200 key.
 
 ## Requirements
 
 - Ulanzi D200 with Ulanzi Studio 2.1.4 or later.
-- Windows 10+ or macOS 12+ (no platform-specific code paths; only Node built-ins).
-- gentle-emote installed in Pi or Gentle Shell, with external display mirroring configured.
+- Windows 10+ or macOS 12+ (declared; no platform-specific code paths, only Node built-ins).
+  The plugin has been used on Windows; the macOS support is declared but has not been
+  independently verified on a device.
+- A compatible external emitter set up for the D200: [Gentle-Emotex](https://github.com/arkamax404-max/gentle-emotex),
+  which declares **Node.js >= 20.12.2**, installed in Pi or Gentle Shell with external display
+  mirroring configured.
 
 ## Install
 
 1. Build the package: `npm run package` (see [Development](#development)); no dependency installation is required.
 2. In Ulanzi Studio, install `com.arkamax404.ulanzi.gentleemote.ulanziPlugin/package/com.arkamax404.ulanzi.gentleemote.ulanziPlugin.zip`.
-3. Drag **Gentle Emote → Emote Display** onto a D200 key.
+3. Drag **Gentle-Emotex → Emote Display** onto a D200 key.
 
-## Point gentle-emote at the key
+## Point the emitter at the key
 
-Add the destination to gentle-emote's config (`config.json` in the extension folder, or the
+Add the destination to the emitter's config (`config.json` in the extension folder, or the
 project-level override):
 
 ```json
@@ -211,6 +220,29 @@ com.arkamax404.ulanzi.gentleemote.ulanziPlugin/
                              manifest, assets, inspector and built dist
 ```
 
+## Store package and assets
+
+The publication package is built with `npm run package` into
+`com.arkamax404.ulanzi.gentleemote.ulanziPlugin/package/com.arkamax404.ulanzi.gentleemote.ulanziPlugin.zip`
+(plugin folder at the ZIP root). Publication assets prepared for the Ulanzi community store:
+
+| Asset | Where | Ratio / size |
+| --- | --- | --- |
+| Store banner (packaged, referenced by manifest `Banner`) | `assets/banners/banner-1.png` | 3:2 (1536x1024) |
+| Store cover (upload form only, not packaged) | approved source artwork, `assets/store/cover.png` | 2:1 (1774x887) |
+| Plugin/icon assets | `assets/plugin.png`, `assets/action.png` | 196x196 PNG |
+| License | `LICENSE` (upstream copyright notices preserved) | MIT |
+
+The raw working references for the approved art (`com.arkamax404.ulanzi.gentleemote.ulanziPlugin/assets/store/reference/`)
+are inputs only and are excluded from the package by the packaging script — the originals are never
+deleted or moved.
+
+Outstanding confirmation: the official UGC upload guide is contradictory about the cover ratio — its
+initial table lists a 1:1 cover while its final text requires 2:1. This package uses a 2:1 cover and
+a 3:2 banner accordingly, but the live UGC upload form's Auto check is the authoritative source and
+has **not** been run yet; run it before submission and re-export the cover if the form asks for a
+1:1 image.
+
 ## Security
 
 The protocol has no authentication and travels over plain HTTP, so the receiver binds loopback only.
@@ -222,7 +254,8 @@ gentle-emote config can enable outbound requests.
 PNG codec and scaler are adapted from gentle-emote's `src/png.ts` and `src/display_image.ts` (MIT).
 The Ulanzi host client and the build/package scripts follow the sibling D200 plugins in this
 workspace. gentle-emote is built on [pi-emote](https://github.com/cgxeiji/pi-emote) by Eiji Onchi.
-See also the related [gentle-emotex repository](https://github.com/arkamax404-max/gentle-emotex).
+The publication package serves the Gentle-Emotex fork of gentle-emote; both upstream projects keep
+full credit.
 
 ## License
 

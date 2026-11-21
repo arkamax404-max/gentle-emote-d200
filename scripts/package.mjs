@@ -11,8 +11,12 @@ function collect(directory) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name === "package") continue;
     const path = join(directory, entry.name);
+    const name = relative(pluginPath, path).replaceAll("\\", "/");
+    // Raw store reference inputs (photos/logos) never ship: they are the approved banner's
+    // working sources, excluded here without deleting or moving the originals on disk.
+    if (name === "assets/store/reference" || name.startsWith("assets/store/reference/")) continue;
     if (entry.isDirectory()) collect(path);
-    else files.push({ path, name: `${pluginName}/${relative(pluginPath, path).replaceAll("\\", "/")}` });
+    else files.push({ path, name: `${pluginName}/${name}` });
   }
 }
 

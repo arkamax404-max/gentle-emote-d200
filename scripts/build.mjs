@@ -16,6 +16,13 @@ mkdirSync(output, { recursive: true });
 mkdirSync(assets, { recursive: true });
 cpSync(source, output, { recursive: true });
 
+// Publication resources: the approved store banner and the MIT license are copied from the
+// repository root so a rebuild always reproduces the packaged assets byte for byte.
+const banners = new URL("banners/", assets);
+mkdirSync(banners, { recursive: true });
+cpSync(new URL("../assets/store/banner.png", import.meta.url), new URL("banner-1.png", banners));
+cpSync(new URL("../LICENSE", import.meta.url), new URL(`../${PLUGIN}/LICENSE`, import.meta.url));
+
 const icon = createIconPng();
 writeFileSync(fileURLToPath(new URL("plugin.png", assets)), icon);
 writeFileSync(fileURLToPath(new URL("action.png", assets)), icon);
